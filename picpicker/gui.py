@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""皮卡比 PicPicker GUI 界面"""
+"""比卡拾图 PicPicker GUI 界面"""
 
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog
@@ -23,7 +23,7 @@ except ImportError:
 
 
 class PicPickerApp:
-    """PicPicker 皮卡比 应用主类"""
+    """PicPicker 比卡拾图 应用主类"""
     
     # 支持的图片格式
     IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff', '.tif', '.webp'}
@@ -33,7 +33,7 @@ class PicPickerApp:
     
     def __init__(self):
         self.root = (TkinterDnD.Tk() if _DND_AVAILABLE else tk.Tk())
-        self.root.title("PicPicker - 皮卡比")
+        self.root.title("PicPicker - 比卡拾图")
         self.root.geometry("1400x950")
         
         # 存储文件夹路径和图片列表
@@ -2988,7 +2988,7 @@ class PicPickerApp:
     def _show_about(self) -> None:
         """显示关于信息，包括作者与 GitHub 地址。"""
         message = (
-            "PicPicker 皮卡比\n\n"
+            "PicPicker 比卡拾图\n\n"
             "作者：wkw\n"
             "GitHub：https://github.com/wkw1125/picpicker"
         )

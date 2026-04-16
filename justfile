@@ -1,4 +1,4 @@
-# 皮卡比 PicPicker
+# 比卡拾图 PicPicker
 
 default:
     @just --list
@@ -11,7 +11,7 @@ install:
 install-dev:
     uv sync --dev
 
-# 运行皮卡比（GUI）
+# 运行比卡拾图（GUI）
 run:
     uv run picpicker
 
