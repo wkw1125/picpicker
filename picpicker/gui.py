@@ -469,7 +469,7 @@ class PicPickerApp:
         
         # 创建3个预览框
         self.preview_labels = []
-        self.filename_labels = []
+        self.filename_labels = []  # 文件名只读文本框（用于复制）
         self.folder_path_entries = []  # 文件夹路径只读文本框（用于复制）
         self.check_labels = []  # 选中标志标签（只用于图1文件夹和图2文件夹）
         self.selection_status_labels = []  # 选中状态显示标签（只用于图1文件夹和图2文件夹）
@@ -526,16 +526,23 @@ class PicPickerApp:
             folder_path_entry.config(state="readonly")
             self.folder_path_entries.append(folder_path_entry)
             
-            # 文件名显示标签
-            # 统一字体：Arial 16
-            filename_label = tk.Label(
+            # 文件名只读文本框（用于复制）
+            filename_entry = tk.Entry(
                 container,
-                text="",
                 font=("Arial", 16),
-                fg="#000000"
+                state="readonly",
+                fg="#000000",
+                justify="center",
+                readonlybackground=container.cget("bg"),
+                relief=tk.FLAT,
+                highlightthickness=0,
             )
-            filename_label.pack(pady=1)  # 缩小行间距
-            self.filename_labels.append(filename_label)
+            filename_entry.pack(pady=1, fill=tk.X)  # 缩小行间距
+            # 初始化为空（readonly 下需切到 normal 写入）
+            filename_entry.config(state="normal")
+            filename_entry.insert(0, "")
+            filename_entry.config(state="readonly")
+            self.filename_labels.append(filename_entry)
             
             # 状态信息显示标签（在预览图上方）
             # 统一字体：Arial 9
@@ -987,10 +994,10 @@ class PicPickerApp:
                 self.preview_labels[index].config(image='', text="暂无图片", cursor="")
             # 如果图1或图2在隐藏模式下，显示"该信息已隐藏"
             if self.hide_info_mode and index >= 1:
-                self.filename_labels[index].config(text="该信息已隐藏")
+                self._set_filename_text(index, "该信息已隐藏")
                 self.path_status_labels[index].config(text="该信息已隐藏")
             else:
-                self.filename_labels[index].config(text="")
+                self._set_filename_text(index, "")
                 # 清空路径状态显示
                 self._update_path_status(index)
             # 清空选中标志和状态显示（只针对图1文件夹和图2文件夹）
@@ -1038,10 +1045,10 @@ class PicPickerApp:
             # 更新文件名显示（含后缀，不含目录）
             filename = image_path.name
             if not self.hide_info_mode or index == 0:  # 原图不受隐藏模式影响
-                self.filename_labels[index].config(text=filename)
+                self._set_filename_text(index, filename)
             else:
                 # 图1或图2在隐藏模式下，显示"该信息已隐藏"
-                self.filename_labels[index].config(text="该信息已隐藏")
+                self._set_filename_text(index, "该信息已隐藏")
             
             # 更新选中标志和状态显示（只针对图1文件夹和图2文件夹）
             self._update_selection_display(index)
@@ -1056,7 +1063,7 @@ class PicPickerApp:
         except Exception as e:
             messagebox.showerror("错误", f"无法加载图片: {image_path}\n{str(e)}")
             self.preview_labels[index].config(image='', text="加载失败")
-            self.filename_labels[index].config(text=image_path.name)
+            self._set_filename_text(index, image_path.name)
             # 更新选中标志和状态显示（只针对图1文件夹和图2文件夹）
             self._update_selection_display(index)
             # 更新路径状态显示
@@ -2695,7 +2702,7 @@ class PicPickerApp:
             self.folder_path_entries[index].config(state="readonly")
             
             # 隐藏文件名
-            self.filename_labels[index].config(text="该信息已隐藏")
+            self._set_filename_text(index, "该信息已隐藏")
             
             # 隐藏底部路径状态
             self.path_status_labels[index].config(text="该信息已隐藏")
@@ -2718,9 +2725,9 @@ class PicPickerApp:
             if self.image_lists[display_data_index] and self.current_indices[display_data_index] < len(self.image_lists[display_data_index]):
                 current_idx = self.current_indices[display_data_index]
                 image_path = self.image_lists[display_data_index][current_idx]
-                self.filename_labels[index].config(text=image_path.name)
+                self._set_filename_text(index, image_path.name)
             else:
-                self.filename_labels[index].config(text="")
+                self._set_filename_text(index, "")
             
             # 恢复底部路径状态显示（需要重新计算路径和尺寸）
             self._update_path_status(index)
@@ -2751,6 +2758,19 @@ class PicPickerApp:
                 subprocess.run(["xdg-open", file_path])
         except Exception as e:
             messagebox.showerror("错误", f"无法打开文件：\n{str(e)}")
+
+    def _set_filename_text(self, index: int, text: str):
+        """设置顶部文件名只读文本框内容（用于复制）。"""
+        try:
+            entry = self.filename_labels[index]
+        except Exception:
+            return
+        try:
+            entry.config(state="normal")
+            entry.delete(0, tk.END)
+            entry.insert(0, text or "")
+        finally:
+            entry.config(state="readonly")
 
     def _open_folder_path(self, index: int):
         """双击路径框时：打开对应目录（原图/图1/图2）。"""
