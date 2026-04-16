@@ -411,6 +411,14 @@ class PicPickerApp:
             command=self._reset_selections,
             accelerator=reset_acc
         )
+
+        # 创建"关于"菜单
+        about_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="关于", menu=about_menu)
+        about_menu.add_command(
+            label="关于 PicPicker",
+            command=self._show_about
+        )
         
         # 使用grid布局管理主窗口，确保状态栏不会被挤压
         # 主容器使用grid布局
@@ -2976,6 +2984,15 @@ class PicPickerApp:
             self.root.destroy()
         except Exception:
             pass
+
+    def _show_about(self) -> None:
+        """显示关于信息，包括作者与 GitHub 地址。"""
+        message = (
+            "PicPicker 皮卡比\n\n"
+            "作者：wkw\n"
+            "GitHub：https://github.com/wkw1125/picpicker"
+        )
+        messagebox.showinfo("关于 PicPicker", message, parent=self.root)
 
     def _set_filename_text(self, index: int, text: str):
         """设置顶部文件名只读文本框内容（用于复制）。"""
