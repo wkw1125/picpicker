@@ -178,6 +178,10 @@ class PicPickerApp:
             self.root.bind('<Command-S>', lambda e: self._export_marked_images())
             self.root.bind('<Command-r>', lambda e: self._reset_selections())
             self.root.bind('<Command-R>', lambda e: self._reset_selections())
+            self.root.bind('<Command-w>', lambda e: self._close_folders())
+            self.root.bind('<Command-W>', lambda e: self._close_folders())
+            self.root.bind('<Command-q>', lambda e: self._quit_app())
+            self.root.bind('<Command-Q>', lambda e: self._quit_app())
         else:  # Windows/Linux
             self.root.bind('<Control-o>', lambda e: self._import_from_csv())
             self.root.bind('<Control-O>', lambda e: self._import_from_csv())
@@ -189,6 +193,10 @@ class PicPickerApp:
             self.root.bind('<Control-S>', lambda e: self._export_marked_images())
             self.root.bind('<Control-r>', lambda e: self._reset_selections())
             self.root.bind('<Control-R>', lambda e: self._reset_selections())
+            self.root.bind('<Control-w>', lambda e: self._close_folders())
+            self.root.bind('<Control-W>', lambda e: self._close_folders())
+            self.root.bind('<Control-q>', lambda e: self._quit_app())
+            self.root.bind('<Control-Q>', lambda e: self._quit_app())
         # 绑定数字键1-6用于切换背景颜色
         for i in range(1, 7):
             idx = i - 1  # 确保lambda捕获正确的值
@@ -241,6 +249,19 @@ class PicPickerApp:
             label="保存标记与图片",
             command=self._export_marked_images,
             accelerator=save_mark_images_acc
+        )
+        file_menu.add_separator()
+        close_acc = "Cmd+W" if system == "Darwin" else "Ctrl+W"
+        quit_acc = "Cmd+Q" if system == "Darwin" else "Ctrl+Q"
+        file_menu.add_command(
+            label="关闭文件夹",
+            command=self._close_folders,
+            accelerator=close_acc
+        )
+        file_menu.add_command(
+            label="退出",
+            command=self._quit_app,
+            accelerator=quit_acc
         )
         
         # 创建"显示"菜单
@@ -2778,6 +2799,183 @@ class PicPickerApp:
                 subprocess.run(["xdg-open", file_path])
         except Exception as e:
             messagebox.showerror("错误", f"无法打开文件：\n{str(e)}")
+
+    def _close_folders(self):
+        """关闭所有已打开文件夹，清空标记/列表/预览，回到初始状态。"""
+        try:
+            ok = messagebox.askokcancel(
+                "关闭文件夹",
+                "确定要关闭所有文件夹并清空标记与预览吗？",
+                parent=self.root,
+            )
+        except Exception:
+            ok = True
+        if not ok:
+            return
+        # 停止放大镜任务并隐藏放大镜
+        try:
+            if self.magnifier_update_id:
+                self.root.after_cancel(self.magnifier_update_id)
+        except Exception:
+            pass
+        self.magnifier_update_id = None
+        self.magnifier_enabled = False
+        if hasattr(self, "magnifier_menu_var"):
+            try:
+                self.magnifier_menu_var.set(False)
+            except Exception:
+                pass
+        for magnifier_label in getattr(self, "magnifier_labels", []):
+            try:
+                magnifier_label.place_forget()
+            except Exception:
+                pass
+        self.current_mouse_preview = None
+
+        # 关闭原图列表窗口（若打开）
+        try:
+            self._close_image_list_window()
+        except Exception:
+            pass
+
+        # 重置核心数据
+        self.folder_paths = [None, None, None]
+        self.image_lists = [[], [], []]
+        self.current_indices = [0, 0, 0]
+        self.last_selected_dir = None
+        self.selected_states = [{}, {}]
+        self.mask_folder_paths = [None, None]
+        self.mask_image_lists = [[], []]
+        self.show_mask_mode = [False, False]
+        self.mask_mode_enabled = False
+
+        # 退出盲选/隐藏信息并清理状态展示
+        self.blind_mode = False
+        self.blind_swap_indices = set()
+        if hasattr(self, "blind_mode_var"):
+            try:
+                self.blind_mode_var.set(False)
+            except Exception:
+                pass
+        if hasattr(self, "blind_mode_status_label"):
+            try:
+                self.blind_mode_status_label.pack_forget()
+                self.blind_mode_status_label.config(text="")
+            except Exception:
+                pass
+        self.hide_info_mode = False
+        if hasattr(self, "toggle_info_btn"):
+            try:
+                self.toggle_info_btn.config(text="隐藏图片信息(I)")
+            except Exception:
+                pass
+        if hasattr(self, "view_menu") and hasattr(self, "toggle_info_menu_index"):
+            try:
+                self.view_menu.entryconfig(self.toggle_info_menu_index, label="隐藏图片信息")
+            except Exception:
+                pass
+
+        # 重置过滤
+        self.filter_mode = "所有"
+        try:
+            self.filter_var.set("所有")
+        except Exception:
+            pass
+        self.filtered_indices = []
+        self.current_filtered_index = 0
+        if hasattr(self, "filter_condition_label"):
+            try:
+                self.filter_condition_label.config(text="过滤: 所有", font=("Arial", 9))
+            except Exception:
+                pass
+
+        # 重置 UI 文本/预览
+        for i in range(3):
+            # 顶部文件夹路径
+            if i < len(getattr(self, "folder_path_entries", [])):
+                try:
+                    self.folder_path_entries[i].config(state="normal")
+                    self.folder_path_entries[i].delete(0, tk.END)
+                    self.folder_path_entries[i].insert(0, "未选择")
+                    self.folder_path_entries[i].config(state="readonly")
+                except Exception:
+                    pass
+
+            # 顶部文件名
+            try:
+                self._set_filename_text(i, "")
+            except Exception:
+                pass
+
+            # 底部路径状态
+            if i < len(getattr(self, "path_status_labels", [])):
+                try:
+                    self.path_status_labels[i].config(text="")
+                except Exception:
+                    pass
+
+            # 状态栏（当前第n/m张 / 已标记...）
+            if i < len(getattr(self, "selection_status_labels", [])):
+                try:
+                    self.selection_status_labels[i].config(text="")
+                except Exception:
+                    pass
+
+            # 预览图框：回到“打开xxx”
+            if i < len(getattr(self, "preview_labels", [])):
+                try:
+                    folder_name = self.FOLDER_NAMES[i]
+                    self.preview_labels[i].config(image="", text=f"打开{folder_name}", cursor="hand2")
+                    self.preview_labels[i].image = None
+                except Exception:
+                    pass
+
+            # 右上角选中标志清空（图1/图2）
+            if i >= 1 and i < len(getattr(self, "check_labels", [])) and self.check_labels[i]:
+                try:
+                    preview_bg = self.bg_colors[self.current_bg_color]
+                    self.check_labels[i].config(text="", bg=preview_bg)
+                except Exception:
+                    pass
+
+        # 刷新遮罩切换菜单文案（如果存在）
+        try:
+            if hasattr(self, "view_menu") and hasattr(self, "toggle_mask_menu_index"):
+                self.view_menu.entryconfig(self.toggle_mask_menu_index, label="切换遮罩")
+        except Exception:
+            pass
+
+        # 收尾：让主窗口获得焦点
+        try:
+            self.root.lift()
+            self.root.focus_force()
+        except Exception:
+            pass
+
+    def _quit_app(self):
+        """彻底退出应用。"""
+        try:
+            ok = messagebox.askokcancel(
+                "退出",
+                "确定要退出 PicPicker 吗？",
+                parent=self.root,
+            )
+        except Exception:
+            ok = True
+        if not ok:
+            return
+        try:
+            self._close_image_list_window()
+        except Exception:
+            pass
+        try:
+            self.root.quit()
+        except Exception:
+            pass
+        try:
+            self.root.destroy()
+        except Exception:
+            pass
 
     def _set_filename_text(self, index: int, text: str):
         """设置顶部文件名只读文本框内容（用于复制）。"""
