@@ -3039,14 +3039,14 @@ class PicPickerApp:
         
         # 选择保存位置（默认保存至下载目录）
         downloads_dir = os.path.expanduser("~/Downloads")
-        default_filename = os.path.join(downloads_dir, "img_cmp.zip")
+        default_filename = os.path.join(downloads_dir, "picpicker.zip")
         
         zip_path = filedialog.asksaveasfilename(
             title="保存标记图片zip文件",
             defaultextension=".zip",
             filetypes=[("ZIP文件", "*.zip"), ("所有文件", "*.*")],
             initialdir=downloads_dir,
-            initialfile="img_cmp.zip"
+            initialfile="picpicker.zip"
         )
         self.root.focus_force()  # 弹窗关闭后让主窗口获得焦点
         
@@ -3135,7 +3135,7 @@ class PicPickerApp:
                             zipf.write(file_path, arcname)
                     # 将CSV数据添加到zip文件的根目录
                     if csv_data:
-                        zipf.writestr("img_cmp.csv", csv_data.encode('gbk'))
+                        zipf.writestr("picpicker.csv", csv_data.encode('gbk'))
                 
                 # 询问用户是否打开导出的文件
                 if messagebox.askyesno("成功", f"标记图片和CSV已导出到：\n{zip_path}\n\n是否打开该文件？"):
@@ -3514,16 +3514,16 @@ class PicPickerApp:
             messagebox.showwarning("警告", "请至少选择一个图1/2文件夹！")
             return
         
-        # 选择保存位置（默认文件名为img_cmp.csv，保存目录为下载目录）
+        # 选择保存位置（默认文件名为picpicker.csv，保存目录为下载目录）
         downloads_dir = os.path.expanduser("~/Downloads")
-        default_filename = os.path.join(downloads_dir, "img_cmp.csv")
+        default_filename = os.path.join(downloads_dir, "picpicker.csv")
         
         csv_path = filedialog.asksaveasfilename(
             title="保存CSV文件",
             defaultextension=".csv",
             filetypes=[("CSV文件", "*.csv"), ("所有文件", "*.*")],
             initialdir=downloads_dir,
-            initialfile="img_cmp.csv"
+            initialfile="picpicker.csv"
         )
         self.root.focus_force()  # 弹窗关闭后让主窗口获得焦点
         
