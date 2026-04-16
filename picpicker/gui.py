@@ -368,6 +368,14 @@ class PicPickerApp:
                 command=self._apply_filter
             )
         filter_menu.add_separator()
+        for opt in ("相同", "异同"):
+            filter_menu.add_radiobutton(
+                label=opt,
+                variable=self.filter_var,
+                value=opt,
+                command=self._apply_filter
+            )
+        filter_menu.add_separator()
         for opt in ("图1标记", "图1未标记", "图2标记", "图2未标记"):
             filter_menu.add_radiobutton(
                 label=opt,
@@ -667,6 +675,18 @@ class PicPickerApp:
             self.filtered_indices = [
                 k for k in range(n)
                 if not self.selected_states[0].get(k, False) and not self.selected_states[1].get(k, False)
+            ]
+        elif self.filter_mode == "相同":
+            # 图1与图2标记状态相同（同为标记 or 同为未标记）
+            self.filtered_indices = [
+                k for k in range(n)
+                if self.selected_states[0].get(k, False) == self.selected_states[1].get(k, False)
+            ]
+        elif self.filter_mode == "异同":
+            # 图1与图2标记状态不同（一边标记另一边未标记）
+            self.filtered_indices = [
+                k for k in range(n)
+                if self.selected_states[0].get(k, False) != self.selected_states[1].get(k, False)
             ]
         elif self.filter_mode == "图1标记":
             self.filtered_indices = [
