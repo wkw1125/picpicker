@@ -44,6 +44,8 @@ class PicPickerApp:
         self.last_selected_dir = None
         # 存储选中状态（只针对图1文件夹和图2文件夹，索引1和2）
         self.selected_states = [{}, {}]  # [{图片索引: bool}, {图片索引: bool}]
+        # 存储文字备注（只针对图1文件夹和图2文件夹，key 为图片在各自列表里的索引）
+        self.notes = [{}, {}]  # [{图片索引: str}, {图片索引: str}]
         # 存储遮罩文件夹路径和图片列表（只针对图1和图2，索引1和2）
         self.mask_folder_paths = [None, None]  # 图1遮罩文件夹、图2遮罩文件夹
         self.mask_image_lists = [[], []]  # 图1遮罩图片列表、图2遮罩图片列表
@@ -122,6 +124,8 @@ class PicPickerApp:
         self.root.bind('<KeyPress-M>', self._on_key_m)
         self.root.bind('<KeyPress-i>', self._on_key_i)
         self.root.bind('<KeyPress-I>', self._on_key_i)
+        # 备注编辑快捷键：[ 图1备注；] 图2备注
+        self.root.bind('<KeyPress>', self._on_keypress_for_note)
 
         # 启动后最大化窗口（非全屏）
         self._maximize_window()
@@ -410,6 +414,17 @@ class PicPickerApp:
             label="重置标记",
             command=self._reset_selections,
             accelerator=reset_acc
+        )
+        mark_menu.add_separator()
+        mark_menu.add_command(
+            label="备注图1",
+            command=lambda: self._edit_note(1),
+            accelerator="["
+        )
+        mark_menu.add_command(
+            label="备注图2",
+            command=lambda: self._edit_note(2),
+            accelerator="]"
         )
 
         # 创建"关于"菜单
@@ -797,6 +812,8 @@ class PicPickerApp:
         self.last_selected_dir = folder_path
         if index >= 1:
             self.selected_states[index - 1] = {i: False for i in range(len(self.image_lists[index]))}
+            # 切换图1/图2文件夹时清空对应备注
+            self.notes[index - 1] = {}
         if not self.hide_info_mode or index == 0:
             self.folder_path_entries[index].config(state="normal")
             self.folder_path_entries[index].delete(0, tk.END)
@@ -2248,6 +2265,12 @@ class PicPickerApp:
                 else:
                     mask_path_text = f"遮罩文件夹: {self.mask_folder_paths[mask_index]}"
                     path_parts.append(mask_path_text)
+
+            # 备注（最后一行）
+            note_slot = display_data_index  # 1或2：对应当前显示的数据源
+            note_text = self.notes[note_slot - 1].get(current_idx, "") if note_slot in (1, 2) else ""
+            if note_text:
+                path_parts.append(f"备注:{note_text}")
             
             # 组合路径文本
             path_status_text = "\n".join(path_parts) if path_parts else ""
@@ -2732,6 +2755,81 @@ class PicPickerApp:
         """处理I键 - 隐藏/显示图片信息"""
         self._toggle_info_visibility()
 
+    def _on_keypress_for_note(self, event):
+        """处理全局按键： [ 备注图1； ] 备注图2。"""
+        try:
+            ch = getattr(event, "char", "") or ""
+            keysym = getattr(event, "keysym", "") or ""
+            if ch == "[" or keysym == "bracketleft":
+                self._edit_note(1)
+            elif ch == "]" or keysym == "bracketright":
+                self._edit_note(2)
+        except Exception:
+            # 避免键盘事件干扰其它交互
+            pass
+
+    def _edit_note(self, slot_index: int):
+        """为指定槽位（1=图1，2=图2）编辑当前图片的文字备注。"""
+        if slot_index not in (1, 2):
+            return
+        if not self.image_lists[slot_index]:
+            messagebox.showwarning("警告", f"请先打开图{slot_index}文件夹。", parent=self.root)
+            return
+        current_idx = self.current_indices[slot_index]
+        if current_idx < 0 or current_idx >= len(self.image_lists[slot_index]):
+            messagebox.showwarning("警告", f"当前图{slot_index}序号无效，无法编辑备注。", parent=self.root)
+            return
+
+        existing_note = self.notes[slot_index - 1].get(current_idx, "")
+
+        dlg = tk.Toplevel(self.root)
+        dlg.title(f"备注图{slot_index}")
+        dlg.transient(self.root)
+        dlg.resizable(False, False)
+
+        tk.Label(dlg, text=f"图{slot_index}备注：", font=("Arial", 11)).pack(pady=(12, 6), padx=12, anchor="w")
+
+        entry = tk.Entry(dlg, width=60, font=("Arial", 11))
+        entry.pack(pady=(0, 12), padx=12, fill=tk.X)
+        entry.insert(0, existing_note)
+        entry.config(state="normal")
+        entry.select_range(0, tk.END)  # 便于直接覆盖
+        entry.icursor(tk.END)
+        entry.focus_set()
+
+        btn_frame = tk.Frame(dlg)
+        btn_frame.pack(pady=(0, 12))
+
+        def on_ok():
+            text = entry.get()
+            if text.strip() == "":
+                self.notes[slot_index - 1].pop(current_idx, None)
+            else:
+                self.notes[slot_index - 1][current_idx] = text
+            dlg.destroy()
+
+            # 刷新底部信息栏（备注可能受盲选对调影响，因此两侧都刷新）
+            for i in [1, 2]:
+                if self.image_lists[i]:
+                    if not self.hide_info_mode:
+                        self._update_path_status(i)
+                    else:
+                        # hide_info_mode 下底部信息被隐藏，不强制刷新内容
+                        self.path_status_labels[i].config(text="该信息已隐藏")
+
+        def on_cancel():
+            dlg.destroy()
+
+        tk.Button(btn_frame, text="确定", width=10, command=on_ok).pack(side=tk.LEFT, padx=8)
+        tk.Button(btn_frame, text="取消", width=10, command=on_cancel).pack(side=tk.LEFT, padx=8)
+
+        dlg.protocol("WM_DELETE_WINDOW", on_cancel)
+        entry.bind("<Return>", lambda e: on_ok())
+        entry.bind("<Escape>", lambda e: on_cancel())
+
+        dlg.grab_set()
+        dlg.wait_window(dlg)
+
     def _on_key_b(self, event):
         """处理 Cmd+B / Ctrl+B - 盲选模式"""
         self.blind_mode_var.set(not self.blind_mode_var.get())
@@ -2852,6 +2950,7 @@ class PicPickerApp:
         self.current_indices = [0, 0, 0]
         self.last_selected_dir = None
         self.selected_states = [{}, {}]
+        self.notes = [{}, {}]
         self.mask_folder_paths = [None, None]
         self.mask_image_lists = [[], []]
         self.show_mask_mode = [False, False]
@@ -3153,7 +3252,8 @@ class PicPickerApp:
     
     def _generate_csv_data(self):
         """生成CSV数据（返回字符串，不保存到文件）。
-        新格式在原有基础上增加两列：图1遮罩、图2遮罩（目录路径 + 文件名）。"""
+        新格式在原有基础上增加列：
+        图1遮罩、图2遮罩（目录路径 + 文件名），以及图1备注、图2备注。"""
         # 检查是否有原图文件夹
         if not self.folder_paths[0] or not self.image_lists[0]:
             return None
@@ -3176,20 +3276,28 @@ class PicPickerApp:
             from io import StringIO
             csv_buffer = StringIO()
             writer = csv.writer(csv_buffer)
-            # 表头：增加 图1遮罩、图2遮罩 两列
-            writer.writerow(['原图', '图1', '图1标记', '图2', '图2标记', '图1遮罩', '图2遮罩'])
+            # 表头：增加 图1遮罩、图2遮罩 两列，以及图1备注、图2备注
+            writer.writerow(['原图', '图1', '图1标记', '图2', '图2标记', '图1遮罩', '图2遮罩', '图1备注', '图2备注'])
             dir_0 = self.folder_paths[0] if self.folder_paths[0] else ''
             dir_1 = self.folder_paths[1] if self.folder_paths[1] else ''
             dir_2 = self.folder_paths[2] if self.folder_paths[2] else ''
             mask_dir_1 = self.mask_folder_paths[0] if self.mask_folder_paths[0] else ''
             mask_dir_2 = self.mask_folder_paths[1] if self.mask_folder_paths[1] else ''
             # 目录行：原图/图1/图2 路径 + 图1遮罩/图2遮罩 目录路径
-            writer.writerow([dir_0, dir_1, '-', dir_2, '-', mask_dir_1, mask_dir_2])
+            writer.writerow([dir_0, dir_1, '-', dir_2, '-', mask_dir_1, mask_dir_2, '-', '-'])
 
             total_count = n0
             p1 = int((sum(1 for v in self.selected_states[0].values() if v) / n1) * 100) if n1 else 0
             p2 = int((sum(1 for v in self.selected_states[1].values() if v) / n2) * 100) if n2 else 0
-            writer.writerow([f'共{total_count}张', '图1标记率', f'{p1}%', '图2标记率', f'{p2}%', '-', '-'])
+            writer.writerow([
+                f'共{total_count}张',
+                '图1标记率', f'{p1}%',
+                '图2标记率', f'{p2}%',
+                '-',  # 图1遮罩（统计行占位）
+                '-',  # 图2遮罩（统计行占位）
+                '-',  # 图1备注（统计行占位）
+                '-',  # 图2备注（统计行占位）
+            ])
 
             for i in range(row_count):
                 file_0 = Path(self.image_lists[0][i]).name if i < n0 else ''
@@ -3200,7 +3308,9 @@ class PicPickerApp:
                 # 遮罩文件名（仅文件名，路径由目录行给出）
                 mask_1 = Path(self.mask_image_lists[0][i]).name if m1 and i < m1 else ''
                 mask_2 = Path(self.mask_image_lists[1][i]).name if m2 and i < m2 else ''
-                writer.writerow([file_0, file_1, selected_1, file_2, selected_2, mask_1, mask_2])
+                note_1 = self.notes[0].get(i, "") if i < n1 else ''
+                note_2 = self.notes[1].get(i, "") if i < n2 else ''
+                writer.writerow([file_0, file_1, selected_1, file_2, selected_2, mask_1, mask_2, note_1, note_2])
 
             return csv_buffer.getvalue()
             
@@ -3293,6 +3403,16 @@ class PicPickerApp:
             except Exception:
                 mask_folder_path_1 = None
                 mask_folder_path_2 = None
+
+            # 备注列索引（新格式可选）
+            note_col_1 = None
+            note_col_2 = None
+            try:
+                note_col_1 = next((i for i, name in enumerate(header) if name.strip() == '图1备注'), None)
+                note_col_2 = next((i for i, name in enumerate(header) if name.strip() == '图2备注'), None)
+            except Exception:
+                note_col_1 = None
+                note_col_2 = None
             
             if not folder_path_0:
                 messagebox.showerror("错误", "CSV文件中未找到原图文件夹路径")
@@ -3314,6 +3434,8 @@ class PicPickerApp:
             csv_filenames_2 = []  # 图2文件名列表（按CSV顺序）
             csv_selected_1 = {}  # 图1标记状态 {文件名: bool}
             csv_selected_2 = {}  # 图2标记状态 {文件名: bool}
+            csv_notes_1 = {}  # 图1备注 {文件名: str}
+            csv_notes_2 = {}  # 图2备注 {文件名: str}
             
             for row in data_rows:
                 if len(row) < 5:
@@ -3325,14 +3447,19 @@ class PicPickerApp:
                 selected_1 = row[2].strip() == '1'
                 selected_2 = row[4].strip() == '1'
                 
+                note_1_text = row[note_col_1].strip() if note_col_1 is not None and note_col_1 < len(row) else ''
+                note_2_text = row[note_col_2].strip() if note_col_2 is not None and note_col_2 < len(row) else ''
+                
                 if filename_0:
                     csv_filenames_0.append(filename_0)
                     if filename_1:
                         csv_filenames_1.append(filename_1)
                         csv_selected_1[filename_1] = selected_1
+                        csv_notes_1[filename_1] = note_1_text
                     if filename_2:
                         csv_filenames_2.append(filename_2)
                         csv_selected_2[filename_2] = selected_2
+                        csv_notes_2[filename_2] = note_2_text
             
             # 验证文件夹路径是否存在
             if not os.path.exists(folder_path_0):
@@ -3404,14 +3531,17 @@ class PicPickerApp:
                 self.current_indices[1] = 0
                 # 初始化图1的选中状态
                 self.selected_states[0] = {}
+                self.notes[0] = {}
                 for idx, img_path in enumerate(actual_images_1):
                     filename = Path(img_path).name
                     self.selected_states[0][idx] = csv_selected_1.get(filename, False)
+                    self.notes[0][idx] = csv_notes_1.get(filename, "")
             else:
                 self.folder_paths[1] = None
                 self.image_lists[1] = []
                 self.current_indices[1] = 0
                 self.selected_states[0] = {}
+                self.notes[0] = {}
             
             if folder_path_2:
                 self.folder_paths[2] = folder_path_2
@@ -3419,14 +3549,17 @@ class PicPickerApp:
                 self.current_indices[2] = 0
                 # 初始化图2的选中状态
                 self.selected_states[1] = {}
+                self.notes[1] = {}
                 for idx, img_path in enumerate(actual_images_2):
                     filename = Path(img_path).name
                     self.selected_states[1][idx] = csv_selected_2.get(filename, False)
+                    self.notes[1][idx] = csv_notes_2.get(filename, "")
             else:
                 self.folder_paths[2] = None
                 self.image_lists[2] = []
                 self.current_indices[2] = 0
                 self.selected_states[1] = {}
+                self.notes[1] = {}
 
             # 设置遮罩文件夹路径和图片列表（新格式），旧格式下 mask_folder_path_* 均为 None
             if mask_folder_path_1:
