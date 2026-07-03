@@ -180,7 +180,9 @@ class PicPickerApp:
             self.root.bind('<Command-B>', self._on_key_b)
             self.root.bind('<Command-s>', lambda e: self._export_to_csv())
             self.root.bind('<Command-S>', lambda e: self._export_marked_images())
-            self.root.bind('<Command-r>', lambda e: self._reset_selections())
+            self.root.bind('<Command-r>', lambda e: self._invert_selections())
+            self.root.bind('<Command-Shift-r>', lambda e: self._reset_selections())
+            self.root.bind('<Command-Shift-R>', lambda e: self._reset_selections())
             self.root.bind('<Command-R>', lambda e: self._reset_selections())
             self.root.bind('<Command-w>', lambda e: self._close_folders())
             self.root.bind('<Command-W>', lambda e: self._close_folders())
@@ -195,7 +197,9 @@ class PicPickerApp:
             self.root.bind('<Control-B>', self._on_key_b)
             self.root.bind('<Control-s>', lambda e: self._export_to_csv())
             self.root.bind('<Control-S>', lambda e: self._export_marked_images())
-            self.root.bind('<Control-r>', lambda e: self._reset_selections())
+            self.root.bind('<Control-r>', lambda e: self._invert_selections())
+            self.root.bind('<Control-Shift-r>', lambda e: self._reset_selections())
+            self.root.bind('<Control-Shift-R>', lambda e: self._reset_selections())
             self.root.bind('<Control-R>', lambda e: self._reset_selections())
             self.root.bind('<Control-w>', lambda e: self._close_folders())
             self.root.bind('<Control-W>', lambda e: self._close_folders())
@@ -370,18 +374,7 @@ class PicPickerApp:
         # 创建"标记"菜单
         mark_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="标记", menu=mark_menu)
-        
-        # 添加标记相关的菜单项
-        mark_menu.add_command(
-            label="标记图1",
-            command=lambda: self._toggle_selection(1),
-            accelerator="←"
-        )
-        mark_menu.add_command(
-            label="标记图2",
-            command=lambda: self._toggle_selection(2),
-            accelerator="→"
-        )
+
         # 添加"过滤"子菜单（所有 / 有标记 / 有未标记 / 无标记 | 图1标记/图1未标记/图2标记/图2未标记）
         filter_menu = tk.Menu(mark_menu, tearoff=0)
         mark_menu.add_cascade(label="过滤", menu=filter_menu)
@@ -409,7 +402,25 @@ class PicPickerApp:
                 command=self._apply_filter
             )
         mark_menu.add_separator()
-        reset_acc = "Cmd+R" if platform.system() == "Darwin" else "Ctrl+R"
+
+        # 添加标记相关的菜单项
+        mark_menu.add_command(
+            label="标记图1",
+            command=lambda: self._toggle_selection(1),
+            accelerator="←"
+        )
+        mark_menu.add_command(
+            label="标记图2",
+            command=lambda: self._toggle_selection(2),
+            accelerator="→"
+        )
+        invert_acc = "Cmd+R" if platform.system() == "Darwin" else "Ctrl+R"
+        mark_menu.add_command(
+            label="反转标记",
+            command=self._invert_selections,
+            accelerator=invert_acc
+        )
+        reset_acc = "Cmd+Shift+R" if platform.system() == "Darwin" else "Ctrl+Shift+R"
         mark_menu.add_command(
             label="重置标记",
             command=self._reset_selections,
@@ -2412,7 +2423,7 @@ class PicPickerApp:
         self.image_list_menu_var.set(not self.image_list_menu_var.get())
         self._toggle_image_list_window()
         return "break"
-    
+
     def _jump_to_image(self):
         """跳转到指定序号的图片"""
         # 检查是否有至少一个文件夹已加载
@@ -2881,6 +2892,23 @@ class PicPickerApp:
     
     def _reset_selections(self):
         """重置所有标记（取消所有图片的选中状态）"""
+        has_compare_images = bool(self.image_lists[1] or self.image_lists[2])
+        if not has_compare_images:
+            messagebox.showwarning("警告", "请先打开图1或图2文件夹。", parent=self.root)
+            return
+
+        ok = messagebox.askokcancel(
+            "重置标记",
+            "确定要重置图1和图2的所有标记吗？\n\n所有已标记图片都会变为未标记。",
+            parent=self.root,
+        )
+        if not ok:
+            try:
+                self.root.focus_force()
+            except Exception:
+                pass
+            return
+
         # 重置图1文件夹的选中状态
         if self.image_lists[1]:
             self.selected_states[0] = {i: False for i in range(len(self.image_lists[1]))}
@@ -2890,8 +2918,52 @@ class PicPickerApp:
         if self.image_lists[2]:
             self.selected_states[1] = {i: False for i in range(len(self.image_lists[2]))}
             self._update_selection_display(2)
-        
-        messagebox.showinfo("成功", "所有标记已重置")
+
+        self.status_label.config(text="所有标记已重置")
+        try:
+            self.root.focus_force()
+        except Exception:
+            pass
+
+    def _invert_selections(self):
+        """反转图1和图2的所有标记状态。"""
+        has_compare_images = bool(self.image_lists[1] or self.image_lists[2])
+        if not has_compare_images:
+            messagebox.showwarning("警告", "请先打开图1或图2文件夹。", parent=self.root)
+            return
+
+        ok = messagebox.askokcancel(
+            "反转标记",
+            "确定要反转图1和图2的所有标记吗？\n\n已标记会变为未标记，未标记会变为已标记。",
+            parent=self.root,
+        )
+        if not ok:
+            try:
+                self.root.focus_force()
+            except Exception:
+                pass
+            return
+
+        if self.image_lists[1]:
+            self.selected_states[0] = {
+                i: not self.selected_states[0].get(i, False)
+                for i in range(len(self.image_lists[1]))
+            }
+            self._update_selection_display(1)
+
+        if self.image_lists[2]:
+            self.selected_states[1] = {
+                i: not self.selected_states[1].get(i, False)
+                for i in range(len(self.image_lists[2]))
+            }
+            self._update_selection_display(2)
+
+        self._refresh_magnifier_if_needed()
+        self.status_label.config(text="已反转图1和图2的所有标记")
+        try:
+            self.root.focus_force()
+        except Exception:
+            pass
     
     def _open_file_with_default_app(self, file_path):
         """使用系统默认应用打开文件"""
