@@ -83,6 +83,12 @@ class PicPickerApp:
         self.filtered_indices = []  # 通过过滤的图片索引列表（当 filter_mode != 所有 时使用）
         self.current_filtered_index = 0  # 在过滤列表中的当前位置
 
+        # 文件名搜索：保留当前关键词和命中位置，便于循环查找
+        self._filename_search_dialog: tk.Toplevel | None = None
+        self._filename_search_query = ""
+        self._filename_search_results: list[int] = []
+        self._filename_search_position = -1
+
         # 原图列表窗口（非模态）：横向缩略图列表，最多同时展示10张，支持滚动
         self.image_list_menu_var = tk.BooleanVar(value=False)
         self._image_list_window: tk.Toplevel | None = None
@@ -126,6 +132,14 @@ class PicPickerApp:
         self.root.bind('<KeyPress-I>', self._on_key_i)
         # 备注编辑快捷键：[ 图1备注；] 图2备注
         self.root.bind('<KeyPress>', self._on_keypress_for_note)
+
+        # 文件名搜索快捷键
+        if platform.system() == "Darwin":
+            self.root.bind('<Command-f>', self._on_key_f)
+            self.root.bind('<Command-F>', self._on_key_f)
+        else:
+            self.root.bind('<Control-f>', self._on_key_f)
+            self.root.bind('<Control-F>', self._on_key_f)
 
         # 启动后最大化窗口（非全屏）
         self._maximize_window()
@@ -291,6 +305,12 @@ class PicPickerApp:
             label="跳转到",
             command=self._jump_to_image,
             accelerator="G"
+        )
+        search_accelerator = "Cmd+F" if platform.system() == "Darwin" else "Ctrl+F"
+        view_menu.add_command(
+            label="搜索原图",
+            command=self._show_filename_search,
+            accelerator=search_accelerator
         )
         view_menu.add_separator()
         view_menu.add_command(
@@ -786,6 +806,7 @@ class PicPickerApp:
     
     def _apply_filter(self):
         """菜单中更改过滤条件时刷新过滤列表并更新显示（浏览过程中改标记不动态刷新）"""
+        self._reset_filename_search(close_dialog=True)
         self.filter_mode = self.filter_var.get()
         self.filter_condition_label.config(text=f"过滤: {self.filter_mode}")
         # 与左侧操作信息栏同字体；有标记/无标记时加粗
@@ -817,6 +838,7 @@ class PicPickerApp:
         """将指定文件夹路径应用到某预览框（原图/图1/图2）。供选择文件夹与拖拽放入共用。"""
         if not folder_path or not os.path.isdir(folder_path):
             return
+        self._reset_filename_search(close_dialog=True)
         self.folder_paths[index] = folder_path
         self.image_lists[index] = self._load_images(folder_path)
         self.current_indices[index] = 0
@@ -2417,6 +2439,156 @@ class PicPickerApp:
         """处理G键 - 跳转到指定图片"""
         self._jump_to_image()
 
+    def _on_key_f(self, event):
+        """处理 Cmd+F / Ctrl+F - 搜索原图文件名。"""
+        self._show_filename_search()
+        return "break"
+
+    @staticmethod
+    def _find_filename_matches(image_paths, query, candidate_indices=None):
+        """返回候选范围内文件名包含 query 的原图索引（忽略大小写）。"""
+        normalized_query = query.casefold()
+        if candidate_indices is None:
+            candidate_indices = range(len(image_paths))
+        return [
+            index
+            for index in candidate_indices
+            if normalized_query in Path(image_paths[index]).name.casefold()
+        ]
+
+    def _reset_filename_search(self, close_dialog=False):
+        """清空文件名搜索状态；可选关闭已打开的搜索框。"""
+        self._filename_search_query = ""
+        self._filename_search_results = []
+        self._filename_search_position = -1
+        if close_dialog and self._filename_search_dialog is not None:
+            try:
+                self._filename_search_dialog.destroy()
+            except tk.TclError:
+                pass
+            self._filename_search_dialog = None
+
+    def _jump_to_original_index(self, target_index):
+        """按原图的绝对索引同步跳转所有已加载的图片列表。"""
+        for index, image_list in enumerate(self.image_lists):
+            if image_list:
+                self.current_indices[index] = min(target_index, len(image_list) - 1)
+
+        if self.filter_mode != "所有" and target_index in self.filtered_indices:
+            self.current_filtered_index = self.filtered_indices.index(target_index)
+
+        self._update_all_previews()
+        if self.hide_info_mode:
+            for index in (1, 2):
+                if self.image_lists[index]:
+                    self._update_info_visibility(index)
+        self._refresh_magnifier_if_needed()
+        self._highlight_current_in_image_list()
+
+    def _show_filename_search(self):
+        """显示文件名搜索框，同一关键词可连续循环查找。"""
+        if not self.image_lists[0]:
+            messagebox.showwarning("警告", "请先打开原图文件夹。", parent=self.root)
+            return
+
+        if self._filename_search_dialog is not None:
+            try:
+                if self._filename_search_dialog.winfo_exists():
+                    self._filename_search_dialog.lift()
+                    self._filename_search_dialog.focus_force()
+                    return
+            except tk.TclError:
+                pass
+            self._filename_search_dialog = None
+
+        dlg = tk.Toplevel(self.root)
+        self._filename_search_dialog = dlg
+        dlg.title("搜索原图")
+        dlg.transient(self.root)
+        dlg.resizable(False, False)
+
+        tk.Label(dlg, text="请输入原图文件名：", font=("Arial", 11)).pack(
+            pady=(12, 6), padx=12, anchor="w"
+        )
+
+        entry = tk.Entry(dlg, width=60, font=("Arial", 11))
+        entry.pack(pady=(0, 12), padx=12, fill=tk.X)
+        entry.insert(0, self._filename_search_query)
+        entry.select_range(0, tk.END)
+        entry.icursor(tk.END)
+        entry.focus_set()
+
+        btn_frame = tk.Frame(dlg)
+        btn_frame.pack(pady=(0, 12))
+
+        def on_search():
+            query = entry.get().strip()
+            if not query:
+                messagebox.showwarning("搜索原图", "请输入要搜索的文件名。", parent=dlg)
+                entry.focus_set()
+                return
+
+            if query != self._filename_search_query:
+                self._filename_search_query = query
+                candidate_indices = (
+                    self.filtered_indices
+                    if self.filter_mode != "所有"
+                    else range(len(self.image_lists[0]))
+                )
+                self._filename_search_results = self._find_filename_matches(
+                    self.image_lists[0], query, candidate_indices
+                )
+                self._filename_search_position = -1
+
+            if not self._filename_search_results:
+                messagebox.showinfo(
+                    "搜索原图",
+                    f"没有找到文件名包含“{query}”的原图。",
+                    parent=dlg,
+                )
+                entry.focus_set()
+                return
+
+            wrapped_to_first = (
+                self._filename_search_position == len(self._filename_search_results) - 1
+            )
+            self._filename_search_position = (
+                self._filename_search_position + 1
+            ) % len(self._filename_search_results)
+            target_index = self._filename_search_results[self._filename_search_position]
+            self._jump_to_original_index(target_index)
+            self.status_label.config(
+                text=(
+                    f"搜索“{query}”：第 {self._filename_search_position + 1}/"
+                    f"{len(self._filename_search_results)} 个结果，原图第 {target_index + 1} 张"
+                )
+            )
+            if wrapped_to_first:
+                messagebox.showinfo(
+                    "搜索原图",
+                    "已到达最后一项搜索结果，现已回到第一项结果。",
+                    parent=dlg,
+                )
+            entry.focus_set()
+
+        def on_cancel():
+            self._filename_search_dialog = None
+            dlg.destroy()
+            self.root.focus_force()
+
+        tk.Button(btn_frame, text="搜索", width=10, command=on_search).pack(
+            side=tk.LEFT, padx=8
+        )
+        tk.Button(btn_frame, text="取消", width=10, command=on_cancel).pack(
+            side=tk.LEFT, padx=8
+        )
+
+        dlg.protocol("WM_DELETE_WINDOW", on_cancel)
+        entry.bind("<Return>", lambda event: on_search())
+        entry.bind("<Escape>", lambda event: on_cancel())
+        dlg.grab_set()
+        dlg.wait_window(dlg)
+
     def _on_key_l(self, event):
         """处理L键 - 原图列表（Cmd/Ctrl+L）"""
         # 先切换勾选状态，再调用统一开关逻辑
@@ -3015,6 +3187,7 @@ class PicPickerApp:
             self._close_image_list_window()
         except Exception:
             pass
+        self._reset_filename_search(close_dialog=True)
 
         # 重置核心数据
         self.folder_paths = [None, None, None]
@@ -3147,6 +3320,7 @@ class PicPickerApp:
             self._close_image_list_window()
         except Exception:
             pass
+        self._reset_filename_search(close_dialog=True)
         try:
             self.root.quit()
         except Exception:
@@ -3593,6 +3767,7 @@ class PicPickerApp:
                 self.root.focus_force()  # 弹窗关闭后让主窗口获得焦点
             
             # 设置文件夹路径和图片列表
+            self._reset_filename_search(close_dialog=True)
             self.folder_paths[0] = folder_path_0
             self.image_lists[0] = actual_images_0
             self.current_indices[0] = 0
