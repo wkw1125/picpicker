@@ -13,13 +13,79 @@ import zipfile
 import shutil
 import subprocess
 import platform
+import ctypes
+import ctypes.util
 from io import StringIO
 
 try:
-    from tkinterdnd2 import DND_FILES, TkinterDnD
+    from tkinterdnd2 import COPY, DND_FILES, REFUSE_DROP, TkinterDnD
     _DND_AVAILABLE = True
 except ImportError:
+    COPY = "copy"
+    DND_FILES = "DND_Files"
+    REFUSE_DROP = "refuse_drop"
     _DND_AVAILABLE = False
+
+
+_MACOS_DRAG_COPY_CALLBACKS = []
+
+
+def _force_macos_drag_copy_operation():
+    """将 TkDND 的 macOS 拖拽源操作限制为 Copy，等价于始终按住 Option 拖拽。"""
+    if platform.system() != "Darwin":
+        return True
+
+    try:
+        objc_path = ctypes.util.find_library("objc") or "/usr/lib/libobjc.A.dylib"
+        objc = ctypes.cdll.LoadLibrary(objc_path)
+        objc.objc_getClass.argtypes = [ctypes.c_char_p]
+        objc.objc_getClass.restype = ctypes.c_void_p
+        objc.sel_registerName.argtypes = [ctypes.c_char_p]
+        objc.sel_registerName.restype = ctypes.c_void_p
+        objc.class_getInstanceMethod.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        objc.class_getInstanceMethod.restype = ctypes.c_void_p
+        objc.method_setImplementation.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        objc.method_setImplementation.restype = ctypes.c_void_p
+
+        dnd_view_class = objc.objc_getClass(b"DNDView")
+        if not dnd_view_class:
+            return False
+
+        patched = False
+        modern_selector = objc.sel_registerName(
+            b"draggingSession:sourceOperationMaskForDraggingContext:"
+        )
+        modern_method = objc.class_getInstanceMethod(dnd_view_class, modern_selector)
+        if modern_method:
+            callback_type = ctypes.CFUNCTYPE(
+                ctypes.c_ulong,
+                ctypes.c_void_p,
+                ctypes.c_void_p,
+                ctypes.c_void_p,
+                ctypes.c_long,
+            )
+            callback = callback_type(lambda self, command, session, context: 1)
+            objc.method_setImplementation(modern_method, ctypes.cast(callback, ctypes.c_void_p))
+            _MACOS_DRAG_COPY_CALLBACKS.append(callback)
+            patched = True
+
+        legacy_selector = objc.sel_registerName(b"draggingSourceOperationMaskForLocal:")
+        legacy_method = objc.class_getInstanceMethod(dnd_view_class, legacy_selector)
+        if legacy_method:
+            callback_type = ctypes.CFUNCTYPE(
+                ctypes.c_int,
+                ctypes.c_void_p,
+                ctypes.c_void_p,
+                ctypes.c_bool,
+            )
+            callback = callback_type(lambda self, command, is_local: 1)
+            objc.method_setImplementation(legacy_method, ctypes.cast(callback, ctypes.c_void_p))
+            _MACOS_DRAG_COPY_CALLBACKS.append(callback)
+            patched = True
+
+        return patched
+    except (AttributeError, OSError):
+        return False
 
 
 class PicPickerApp:
@@ -33,6 +99,7 @@ class PicPickerApp:
     
     def __init__(self):
         self.root = (TkinterDnD.Tk() if _DND_AVAILABLE else tk.Tk())
+        self._native_copy_drag_enabled = _DND_AVAILABLE and _force_macos_drag_copy_operation()
         self.root.title("PicPicker - 比卡拾图")
         self.root.geometry("1400x950")
         
@@ -485,7 +552,7 @@ class PicPickerApp:
         left_hint_frame.grid_columnconfigure(0, weight=1)
         self.key_hint_label = tk.Label(
             left_hint_frame,
-            text="↑↓ 切换图片 | ←→ 标记图1/图2 | M 切换遮罩 | S 放大镜 | 双击打开原图",
+            text="↑↓ 切换图片 | ←→ 标记图1/图2 | M 切换遮罩 | S 放大镜 | 双击打开原图 | 拖拽复制内容",
             font=("Arial", 9),
             fg="#000000",
             anchor=tk.W
@@ -667,6 +734,12 @@ class PicPickerApp:
             if _DND_AVAILABLE:
                 preview_label.drop_target_register(DND_FILES)
                 preview_label.dnd_bind("<<Drop>>", lambda e, idx=i: self._on_preview_drop(e, idx))
+            if self._native_copy_drag_enabled:
+                preview_label.drag_source_register(1, DND_FILES)
+                preview_label.dnd_bind(
+                    "<<DragInitCmd>>",
+                    lambda e, idx=i: self._on_preview_drag_init(e, idx),
+                )
             self.preview_labels.append(preview_label)
             
             # 创建放大镜标签（初始隐藏，放在预览图容器中）
@@ -938,6 +1011,13 @@ class PicPickerApp:
                     return
         except Exception:
             pass
+
+    def _on_preview_drag_init(self, event, index):
+        """将当前实际显示文件交给已强制为 Copy 的系统拖拽会话。"""
+        file_path = self._get_displayed_image_path(index)
+        if file_path is None or not file_path.is_file():
+            return REFUSE_DROP
+        return COPY, DND_FILES, (str(file_path.absolute()),)
 
     def _select_folder(self, index):
         """选择文件夹"""
@@ -2204,37 +2284,35 @@ class PicPickerApp:
             # 未选择文件夹，打开文件夹选择对话框
             self._select_folder(index)
         # 如果已选择文件夹，单击不做任何操作（双击会打开文件）
-    
+
+    def _get_displayed_image_path(self, index):
+        """返回指定预览栏当前实际显示的图片路径（含盲选与遮罩）。"""
+        if index < 0 or index >= 3:
+            return None
+
+        display_index = self._get_blind_display_data_index(index) if index >= 1 else index
+        image_list = self.image_lists[display_index]
+        if not image_list:
+            return None
+
+        current_index = self.current_indices[display_index]
+        if current_index < 0:
+            return None
+
+        if index >= 1 and self.show_mask_mode[display_index - 1]:
+            mask_list = self.mask_image_lists[display_index - 1]
+            if current_index < len(mask_list):
+                return Path(mask_list[current_index])
+
+        if current_index < len(image_list):
+            return Path(image_list[current_index])
+        return None
+
     def _open_image_file(self, index):
         """双击预览图时，使用系统默认应用打开原文件（盲选时打开当前该位置实际显示的文件）"""
-        if index < 0 or index >= 3:
+        file_path = self._get_displayed_image_path(index)
+        if file_path is None:
             return
-        display_i = self._get_blind_display_data_index(index) if index >= 1 else index
-
-        # 确定要打开的文件路径
-        if not self.image_lists[display_i]:
-            return  # 没有图片
-
-        current_idx = self.current_indices[display_i]
-
-        # 对于图1和图2，如果当前显示遮罩，打开遮罩文件；否则打开原始图片
-        if index >= 1 and self.show_mask_mode[display_i - 1]:
-            # 当前显示遮罩，打开遮罩文件
-            mask_index = display_i - 1
-            if self.mask_image_lists[mask_index] and current_idx < len(self.mask_image_lists[mask_index]):
-                file_path = self.mask_image_lists[mask_index][current_idx]
-            else:
-                # 遮罩不存在，打开原始图片
-                if current_idx < len(self.image_lists[display_i]):
-                    file_path = self.image_lists[display_i][current_idx]
-                else:
-                    return
-        else:
-            # 打开原始图片
-            if current_idx < len(self.image_lists[display_i]):
-                file_path = self.image_lists[display_i][current_idx]
-            else:
-                return
         
         # 使用系统默认应用打开文件
         try:
