@@ -122,6 +122,8 @@ class PicPickerApp:
         self.mask_mode_enabled = False
         # 信息隐藏状态：False显示信息，True隐藏信息（只针对图1和图2）
         self.hide_info_mode = False  # 是否隐藏图1和图2的信息
+        # 备注上屏状态：默认显示，只针对图1和图2
+        self.show_note_overlay = True
         # 放大镜功能
         self.magnifier_enabled = False  # 放大镜是否启用
         self.magnifier_size = 200  # 放大镜窗口大小（像素）
@@ -197,6 +199,8 @@ class PicPickerApp:
         self.root.bind('<KeyPress-M>', self._on_key_m)
         self.root.bind('<KeyPress-i>', self._on_key_i)
         self.root.bind('<KeyPress-I>', self._on_key_i)
+        self.root.bind('<KeyPress-c>', self._on_key_c)
+        self.root.bind('<KeyPress-C>', self._on_key_c)
         # 备注编辑快捷键：[ 图1备注；] 图2备注
         self.root.bind('<KeyPress>', self._on_keypress_for_note)
 
@@ -410,7 +414,16 @@ class PicPickerApp:
             command=self._toggle_info_visibility,
             accelerator="I"
         )
+
         view_menu.add_separator()
+
+        # 备注上屏开关（默认显示）
+        view_menu.add_command(
+            label="隐藏备注",
+            command=self._toggle_note_visibility,
+            accelerator="C"
+        )
+        self.toggle_note_menu_index = view_menu.index(tk.END)
         # 保存菜单引用，并通过标签查找「隐藏/显示图片信息」的索引（用于切换时更新文字）
         self.view_menu = view_menu
         menu_count = view_menu.index(tk.END)
@@ -624,6 +637,7 @@ class PicPickerApp:
         self.check_labels = []  # 选中标志标签（只用于图1文件夹和图2文件夹）
         self.selection_status_labels = []  # 选中状态显示标签（只用于图1文件夹和图2文件夹）
         self.path_status_labels = []  # 路径状态显示标签（显示图片路径和遮罩路径）
+        self.note_overlay_labels = [None, None, None]  # 图1/图2预览框底部的备注上屏标签
         
         # 创建信息栏区域（上方，三个信息栏并排）
         info_frame = tk.Frame(preview_frame)
@@ -741,6 +755,29 @@ class PicPickerApp:
                     lambda e, idx=i: self._on_preview_drag_init(e, idx),
                 )
             self.preview_labels.append(preview_label)
+
+            # 图1、图2备注上屏标签：独立于图片层，显隐时无需重新绘制图片。
+            if i >= 1:
+                note_overlay_label = tk.Label(
+                    preview_container,
+                    text="",
+                    font=("Arial", 12),
+                    fg="#666666",
+                    bg="#D9D9D9",
+                    justify=tk.LEFT,
+                    anchor="w",
+                    padx=8,
+                    pady=6,
+                )
+                note_overlay_label.place_forget()
+                preview_container.bind(
+                    "<Configure>",
+                    lambda e, label=note_overlay_label: label.config(
+                        wraplength=max(1, e.width - 16)
+                    ),
+                    add="+",
+                )
+                self.note_overlay_labels[i] = note_overlay_label
             
             # 创建放大镜标签（初始隐藏，放在预览图容器中）
             magnifier_label = tk.Label(
@@ -1144,6 +1181,7 @@ class PicPickerApp:
         """更新指定索引的预览图"""
         if index < 0 or index >= 3:
             return
+        self._update_note_overlay(index)
         # 盲选模式：图1/图2 位置可能显示对调（图片、文件名、路径以实际显示的数据源为准）
         display_data_index = self._get_blind_display_data_index(index) if index >= 1 else index
         
@@ -1963,7 +2001,7 @@ class PicPickerApp:
             if widget_under == preview_label:
                 is_on_preview = True
                 break
-        
+
         for magnifier_label in self.magnifier_labels:
             if widget_under == magnifier_label:
                 is_on_magnifier = True
@@ -2377,12 +2415,6 @@ class PicPickerApp:
                     mask_path_text = f"遮罩文件夹: {self.mask_folder_paths[mask_index]}"
                     path_parts.append(mask_path_text)
 
-            # 备注（最后一行）
-            note_slot = display_data_index  # 1或2：对应当前显示的数据源
-            note_text = self.notes[note_slot - 1].get(current_idx, "") if note_slot in (1, 2) else ""
-            if note_text:
-                path_parts.append(f"备注:{note_text}")
-            
             # 组合路径文本
             path_status_text = "\n".join(path_parts) if path_parts else ""
         else:
@@ -2936,6 +2968,49 @@ class PicPickerApp:
             return slot_index
         return 2 if slot_index == 1 else 1
 
+    def _get_note_overlay_text(self, slot_index: int) -> str:
+        """返回图1/图2预览位置当前实际展示内容的备注。"""
+        if slot_index not in (1, 2):
+            return ""
+        display_data_index = self._get_blind_display_data_index(slot_index)
+        image_list = self.image_lists[display_data_index]
+        current_idx = self.current_indices[display_data_index]
+        if not image_list or current_idx < 0 or current_idx >= len(image_list):
+            return ""
+        return self.notes[display_data_index - 1].get(current_idx, "")
+
+    def _update_note_overlay(self, slot_index: int) -> None:
+        """刷新指定预览位置的备注上屏标签，不重绘底层图片。"""
+        if slot_index not in (1, 2):
+            return
+        if not hasattr(self, "note_overlay_labels"):
+            return
+        label = self.note_overlay_labels[slot_index]
+        if label is None:
+            return
+
+        note_text = self._get_note_overlay_text(slot_index)
+        if not self.show_note_overlay or not note_text.strip():
+            label.place_forget()
+            label.config(text="")
+            return
+
+        preview_container = self.preview_labels[slot_index].master
+        wraplength = max(1, preview_container.winfo_width() - 16)
+        label.config(text=note_text, wraplength=wraplength)
+        label.place(x=0, rely=1.0, relwidth=1.0, anchor="sw")
+        # macOS 下菜单命令执行期间需要明确提升并刷新控件，否则文字可能要等到
+        # 窗口焦点变化后才绘制出来。
+        label.lift()
+        label.update_idletasks()
+        if slot_index < len(self.check_labels) and self.check_labels[slot_index] is not None:
+            self.check_labels[slot_index].lift()
+
+    def _refresh_note_overlays(self) -> None:
+        """在当前 Tk 事件结束后再次刷新备注，确保覆盖控件完成绘制。"""
+        for index in (1, 2):
+            self._update_note_overlay(index)
+
     def _rebuild_blind_swap_indices(self):
         """根据当前图片列表重新生成盲选对调索引（20%～80%），仅在图1和图2均存在时生效。"""
         # 仅当图1与图2均加载时才对调
@@ -3011,7 +3086,22 @@ class PicPickerApp:
         # 更新图1和图2的信息显示
         for index in [1, 2]:
             self._update_info_visibility(index)
-    
+
+    def _toggle_note_visibility(self):
+        """切换图1和图2预览框内的备注上屏显示。"""
+        self.show_note_overlay = not self.show_note_overlay
+        if hasattr(self, "view_menu") and hasattr(self, "toggle_note_menu_index"):
+            label = "隐藏备注" if self.show_note_overlay else "显示备注"
+            self.view_menu.entryconfig(self.toggle_note_menu_index, label=label)
+        self._refresh_note_overlays()
+        # 菜单关闭发生在 command 返回之后；idle 阶段再刷新一次可规避 macOS Tk
+        # 在菜单仍处于激活状态时不重绘覆盖 Label 的问题。
+        self.root.after_idle(self._refresh_note_overlays)
+
+    def _on_key_c(self, event):
+        """处理C键 - 隐藏/显示备注。"""
+        self._toggle_note_visibility()
+
     def _on_key_i(self, event):
         """处理I键 - 隐藏/显示图片信息"""
         self._toggle_info_visibility()
@@ -3069,14 +3159,7 @@ class PicPickerApp:
                 self.notes[slot_index - 1][current_idx] = text
             dlg.destroy()
 
-            # 刷新底部信息栏（备注可能受盲选对调影响，因此两侧都刷新）
-            for i in [1, 2]:
-                if self.image_lists[i]:
-                    if not self.hide_info_mode:
-                        self._update_path_status(i)
-                    else:
-                        # hide_info_mode 下底部信息被隐藏，不强制刷新内容
-                        self.path_status_labels[i].config(text="该信息已隐藏")
+            self._refresh_note_overlays()
 
         def on_cancel():
             dlg.destroy()
@@ -3304,6 +3387,21 @@ class PicPickerApp:
                 self.view_menu.entryconfig(self.toggle_info_menu_index, label="隐藏图片信息")
             except Exception:
                 pass
+
+        # 备注上屏恢复默认显示状态
+        self.show_note_overlay = True
+        if hasattr(self, "view_menu") and hasattr(self, "toggle_note_menu_index"):
+            try:
+                self.view_menu.entryconfig(self.toggle_note_menu_index, label="隐藏备注")
+            except Exception:
+                pass
+        for note_label in getattr(self, "note_overlay_labels", []):
+            if note_label is not None:
+                try:
+                    note_label.place_forget()
+                    note_label.config(text="")
+                except Exception:
+                    pass
 
         # 重置过滤
         self.filter_mode = "所有"
