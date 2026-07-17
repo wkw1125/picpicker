@@ -15,6 +15,7 @@ import subprocess
 import platform
 import ctypes
 import ctypes.util
+import sys
 from io import StringIO
 
 try:
@@ -28,6 +29,18 @@ except ImportError:
 
 
 _MACOS_DRAG_COPY_CALLBACKS = []
+
+
+def _app_icon_path() -> Path | None:
+    """返回开发环境、wheel 或 PyInstaller 包中的应用图标路径。"""
+    candidates: list[Path] = []
+    bundle_dir = getattr(sys, "_MEIPASS", None)
+    if bundle_dir:
+        candidates.append(Path(bundle_dir) / "logo.png")
+
+    module_dir = Path(__file__).resolve().parent
+    candidates.extend((module_dir / "logo.png", module_dir.parent / "logo.png"))
+    return next((path for path in candidates if path.is_file()), None)
 
 
 def _force_macos_drag_copy_operation():
@@ -101,6 +114,7 @@ class PicPickerApp:
         self.root = (TkinterDnD.Tk() if _DND_AVAILABLE else tk.Tk())
         self._native_copy_drag_enabled = _DND_AVAILABLE and _force_macos_drag_copy_operation()
         self.root.title("PicPicker - 比卡拾图")
+        self._set_app_icon()
         self.root.geometry("1400x950")
         
         # 存储文件夹路径和图片列表
@@ -214,6 +228,20 @@ class PicPickerApp:
 
         # 启动后最大化窗口（非全屏）
         self._maximize_window()
+
+    def _set_app_icon(self) -> None:
+        """设置源码运行时的窗口图标；打包应用图标由 PyInstaller 设置。"""
+        icon_path = _app_icon_path()
+        if icon_path is None:
+            return
+
+        try:
+            # 保存引用，避免 Tk 图片对象被回收后图标失效。
+            self._app_icon = tk.PhotoImage(file=str(icon_path))
+            self.root.iconphoto(True, self._app_icon)
+        except tk.TclError:
+            # 图标加载失败不应阻止主程序启动。
+            self._app_icon = None
 
     def _maximize_window(self):
         """启动后最大化窗口（不是全屏）。"""

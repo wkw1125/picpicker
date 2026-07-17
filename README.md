@@ -31,6 +31,16 @@ uv run picpicker
 just run
 ```
 
+源码运行时，窗口图标会自动使用项目根目录下的 `logo.png`。
+
+## 打包应用
+
+```bash
+just build
+```
+
+打包结果位于 `dist/`：在 macOS 上为 `PicPicker.app`，Windows 上为 `PicPicker.exe`，Linux 上为 `PicPicker` 可执行文件。PyInstaller 会将 `logo.png` 转换为当前系统所需的应用图标格式，并将原图一起打包，供程序运行时设置窗口图标。
+
 ## 主要功能
 
 - **同步对比**：并排显示原图、图1和图2，支持上下翻页、按序号跳转、对齐原图，以及通过原图列表小窗快速定位。
