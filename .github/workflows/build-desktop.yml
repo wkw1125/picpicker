@@ -1,0 +1,68 @@
+name: Build desktop apps
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.artifact_name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact_name: PicPicker-Windows-x64
+          - os: macos-15
+            artifact_name: PicPicker-macOS-arm64
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.9.16"
+          python-version: "3.11"
+          enable-cache: true
+
+      - name: Install locked dependencies
+        run: uv sync --frozen --group build
+
+      - name: Build application
+        run: >-
+          uv run --no-sync pyinstaller
+          --noconfirm
+          --clean
+          --windowed
+          --name PicPicker
+          --collect-all tkinterdnd2
+          picpicker/main.py
+
+      - name: Package Windows application
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path package
+          Compress-Archive -Path dist/PicPicker -DestinationPath package/${{ matrix.artifact_name }}.zip
+
+      - name: Package macOS application
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p package
+          ditto -c -k --sequesterRsrc --keepParent dist/PicPicker.app package/${{ matrix.artifact_name }}.zip
+
+      - name: Upload application
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: package/${{ matrix.artifact_name }}.zip
+          if-no-files-found: error
+          retention-days: 14
