@@ -199,8 +199,18 @@ class PicPickerApp:
         if _DND_AVAILABLE:
             self.root.drop_target_register(DND_FILES)
             self.root.dnd_bind("<<Drop>>", self._on_root_drop)
-        
-        # 绑定键盘事件
+
+        self._bind_keyboard_shortcuts()
+
+        # 启动后最大化窗口（非全屏）
+        self._maximize_window()
+
+    def _bind_keyboard_shortcuts(self):
+        """注册键盘快捷键。
+
+        键盘绑定必须独立于窗口最大化逻辑：Windows 上
+        ``state("zoomed")`` 成功后会直接返回，不应因此跳过快捷键注册。
+        """
         self.root.bind('<Up>', self._on_arrow_up)
         self.root.bind('<Down>', self._on_arrow_down)
         self.root.bind('<KeyPress-Up>', self._on_arrow_up)
@@ -226,8 +236,58 @@ class PicPickerApp:
             self.root.bind('<Control-f>', self._on_key_f)
             self.root.bind('<Control-F>', self._on_key_f)
 
-        # 启动后最大化窗口（非全屏）
-        self._maximize_window()
+        self.root.bind('<KeyPress-a>', self._on_key_a)
+        self.root.bind('<KeyPress-A>', self._on_key_a)
+        self.root.bind('<KeyPress-s>', self._on_key_s)
+        self.root.bind('<KeyPress-S>', self._on_key_s)
+        self.root.bind('<KeyPress-g>', self._on_key_g)
+        self.root.bind('<KeyPress-G>', self._on_key_g)
+
+        # 绑定 Command 或 Control 组合键。
+        system = platform.system()
+        if system == "Darwin":
+            self.root.bind('<Command-o>', lambda e: self._import_from_csv())
+            self.root.bind('<Command-O>', lambda e: self._import_from_csv())
+            # 原图列表是独立 Toplevel，因此使用 bind_all。
+            self.root.bind_all('<Command-l>', self._on_key_l)
+            self.root.bind_all('<Command-L>', self._on_key_l)
+            self.root.bind('<Command-b>', self._on_key_b)
+            self.root.bind('<Command-B>', self._on_key_b)
+            self.root.bind('<Command-s>', lambda e: self._export_to_csv())
+            self.root.bind('<Command-S>', lambda e: self._export_marked_images())
+            self.root.bind('<Command-r>', lambda e: self._invert_selections())
+            self.root.bind('<Command-Shift-r>', lambda e: self._reset_selections())
+            self.root.bind('<Command-Shift-R>', lambda e: self._reset_selections())
+            self.root.bind('<Command-R>', lambda e: self._reset_selections())
+            self.root.bind('<Command-w>', lambda e: self._close_folders())
+            self.root.bind('<Command-W>', lambda e: self._close_folders())
+            self.root.bind('<Command-q>', lambda e: self._quit_app())
+            self.root.bind('<Command-Q>', lambda e: self._quit_app())
+        else:
+            self.root.bind('<Control-o>', lambda e: self._import_from_csv())
+            self.root.bind('<Control-O>', lambda e: self._import_from_csv())
+            self.root.bind_all('<Control-l>', self._on_key_l)
+            self.root.bind_all('<Control-L>', self._on_key_l)
+            self.root.bind('<Control-b>', self._on_key_b)
+            self.root.bind('<Control-B>', self._on_key_b)
+            self.root.bind('<Control-s>', lambda e: self._export_to_csv())
+            self.root.bind('<Control-S>', lambda e: self._export_marked_images())
+            self.root.bind('<Control-r>', lambda e: self._invert_selections())
+            self.root.bind('<Control-Shift-r>', lambda e: self._reset_selections())
+            self.root.bind('<Control-Shift-R>', lambda e: self._reset_selections())
+            self.root.bind('<Control-R>', lambda e: self._reset_selections())
+            self.root.bind('<Control-w>', lambda e: self._close_folders())
+            self.root.bind('<Control-W>', lambda e: self._close_folders())
+            self.root.bind('<Control-q>', lambda e: self._quit_app())
+            self.root.bind('<Control-Q>', lambda e: self._quit_app())
+
+        # 主键盘和数字小键盘的 1-6 均可切换背景色。
+        for i in range(1, 7):
+            idx = i - 1
+            self.root.bind(f'<KeyPress-{i}>', lambda e, idx=idx: self._on_bg_color_key(idx))
+            self.root.bind(f'<KeyPress-KP_{i}>', lambda e, idx=idx: self._on_bg_color_key(idx))
+
+        self.root.focus_set()
 
     def _set_app_icon(self) -> None:
         """设置源码运行时的窗口图标；打包应用图标由 PyInstaller 设置。"""
@@ -275,57 +335,6 @@ class PicPickerApp:
         except Exception:
             # 最后兜底：不影响启动
             pass
-        self.root.bind('<KeyPress-a>', self._on_key_a)
-        self.root.bind('<KeyPress-A>', self._on_key_a)
-        self.root.bind('<KeyPress-s>', self._on_key_s)
-        self.root.bind('<KeyPress-S>', self._on_key_s)
-        self.root.bind('<KeyPress-g>', self._on_key_g)
-        self.root.bind('<KeyPress-G>', self._on_key_g)
-        # 绑定Command+O或Ctrl+O用于从标记文件打开
-        system = platform.system()
-        if system == "Darwin":  # macOS
-            self.root.bind('<Command-o>', lambda e: self._import_from_csv())
-            self.root.bind('<Command-O>', lambda e: self._import_from_csv())
-            # 原图列表快捷键 Command+L：用 bind_all 保证弹窗获得焦点时也生效
-            self.root.bind_all('<Command-l>', self._on_key_l)
-            self.root.bind_all('<Command-L>', self._on_key_l)
-            self.root.bind('<Command-b>', self._on_key_b)
-            self.root.bind('<Command-B>', self._on_key_b)
-            self.root.bind('<Command-s>', lambda e: self._export_to_csv())
-            self.root.bind('<Command-S>', lambda e: self._export_marked_images())
-            self.root.bind('<Command-r>', lambda e: self._invert_selections())
-            self.root.bind('<Command-Shift-r>', lambda e: self._reset_selections())
-            self.root.bind('<Command-Shift-R>', lambda e: self._reset_selections())
-            self.root.bind('<Command-R>', lambda e: self._reset_selections())
-            self.root.bind('<Command-w>', lambda e: self._close_folders())
-            self.root.bind('<Command-W>', lambda e: self._close_folders())
-            self.root.bind('<Command-q>', lambda e: self._quit_app())
-            self.root.bind('<Command-Q>', lambda e: self._quit_app())
-        else:  # Windows/Linux
-            self.root.bind('<Control-o>', lambda e: self._import_from_csv())
-            self.root.bind('<Control-O>', lambda e: self._import_from_csv())
-            self.root.bind_all('<Control-l>', self._on_key_l)
-            self.root.bind_all('<Control-L>', self._on_key_l)
-            self.root.bind('<Control-b>', self._on_key_b)
-            self.root.bind('<Control-B>', self._on_key_b)
-            self.root.bind('<Control-s>', lambda e: self._export_to_csv())
-            self.root.bind('<Control-S>', lambda e: self._export_marked_images())
-            self.root.bind('<Control-r>', lambda e: self._invert_selections())
-            self.root.bind('<Control-Shift-r>', lambda e: self._reset_selections())
-            self.root.bind('<Control-Shift-R>', lambda e: self._reset_selections())
-            self.root.bind('<Control-R>', lambda e: self._reset_selections())
-            self.root.bind('<Control-w>', lambda e: self._close_folders())
-            self.root.bind('<Control-W>', lambda e: self._close_folders())
-            self.root.bind('<Control-q>', lambda e: self._quit_app())
-            self.root.bind('<Control-Q>', lambda e: self._quit_app())
-        # 绑定数字键1-6用于切换背景颜色
-        for i in range(1, 7):
-            idx = i - 1  # 确保lambda捕获正确的值
-            self.root.bind(f'<KeyPress-{i}>', lambda e, idx=idx: self._on_bg_color_key(idx))
-            self.root.bind(f'<KeyPress-KP_{i}>', lambda e, idx=idx: self._on_bg_color_key(idx))  # 小键盘数字键
-        
-        # 设置焦点以接收键盘事件
-        self.root.focus_set()
     
     def _create_widgets(self):
         """创建界面组件"""
@@ -496,7 +505,7 @@ class PicPickerApp:
             label="原图列表",
             command=self._toggle_image_list_window,
             variable=self.image_list_menu_var,
-            accelerator="Cmd+L"
+            accelerator="Cmd+L" if platform.system() == "Darwin" else "Ctrl+L"
         )
         
         # 创建"标记"菜单
