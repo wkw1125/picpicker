@@ -1,5 +1,7 @@
 # 比卡拾图 PicPicker
 
+icon_file := if os() == "windows" { "logo.ico" } else if os() == "macos" { "logo.icns" } else { "logo.png" }
+
 default:
     @just --list
 
@@ -17,7 +19,7 @@ run:
 
 # 打包带应用图标的可执行程序（输出至 dist/）
 build:
-    uv run pyinstaller --noconfirm --clean --windowed --name PicPicker --icon logo.png --add-data "logo.png:." --collect-all tkinterdnd2 picpicker/main.py
+    uv run pyinstaller --noconfirm --clean --windowed --name PicPicker --icon {{icon_file}} --add-data "logo.png:." --collect-all tkinterdnd2 picpicker/main.py
 
 # 运行测试（若有）
 test:

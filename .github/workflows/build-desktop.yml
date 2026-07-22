@@ -19,8 +19,10 @@ jobs:
         include:
           - os: windows-latest
             platform: Windows-x64
+            icon_file: logo.ico
           - os: macos-15
             platform: macOS-arm64
+            icon_file: logo.icns
 
     steps:
       - name: Check out repository
@@ -61,6 +63,8 @@ jobs:
           --clean
           --windowed
           --name PicPicker
+          --icon ${{ matrix.icon_file }}
+          --add-data "logo.png:."
           --collect-all tkinterdnd2
           picpicker/main.py
 
