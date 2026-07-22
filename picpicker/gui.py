@@ -716,6 +716,7 @@ class PicPickerApp:
         self.selection_status_labels = []  # 选中状态显示标签（只用于图1文件夹和图2文件夹）
         self.path_status_labels = []  # 路径状态显示标签（显示图片路径和遮罩路径）
         self.note_overlay_labels = [None, None, None]  # 图1/图2预览框底部的备注上屏标签
+        self.preview_context_menus = []  # 三个图片预览区域共用全局状态的右键菜单
         
         # 创建信息栏区域（上方，三个信息栏并排）
         info_frame = tk.Frame(preview_frame)
@@ -816,6 +817,7 @@ class PicPickerApp:
                 borderwidth=2,
             )
             preview_label.grid(row=0, column=0, sticky="nsew")
+            context_menu_widgets = [preview_container, preview_label]
             # 绑定单击事件，选择文件夹（当未选择文件夹时）
             preview_label.bind("<Button-1>", lambda e, idx=i: self._on_preview_click(idx))
             # 绑定双击事件，打开原文件（当已选择文件夹时）
@@ -860,6 +862,7 @@ class PicPickerApp:
                     add="+",
                 )
                 self.note_overlay_labels[i] = note_overlay_label
+                context_menu_widgets.append(note_overlay_label)
             
             # 创建放大镜标签（初始隐藏，放在预览图容器中）
             magnifier_label = tk.Label(
@@ -870,6 +873,7 @@ class PicPickerApp:
             )
             magnifier_label.place_forget()  # 初始隐藏
             self.magnifier_labels.append(magnifier_label)
+            context_menu_widgets.append(magnifier_label)
             
             # 选中标志标签（只用于图1文件夹和图2文件夹，索引1和2）
             # 放置在预览图右上角，字体再放大2倍（从32到64）
@@ -884,8 +888,14 @@ class PicPickerApp:
                 # 使用place布局放置在右上角
                 check_label.place(relx=1.0, rely=0.0, anchor="ne", x=-5, y=5)
                 self.check_labels.append(check_label)
+                context_menu_widgets.append(check_label)
             else:
                 self.check_labels.append(None)  # 原图文件夹不需要选中标志
+
+            preview_context_menu = tk.Menu(preview_container, tearoff=0)
+            self.preview_context_menus.append(preview_context_menu)
+            for widget in context_menu_widgets:
+                self._bind_preview_context_menu(widget, preview_context_menu, i)
         
         # 预览图下方的路径状态显示区域
         path_status_frame = tk.Frame(preview_frame)
@@ -2483,6 +2493,56 @@ class PicPickerApp:
             self._select_folder(index)
         # 如果已选择文件夹，单击不做任何操作（双击会打开文件）
 
+    def _bind_preview_context_menu(self, widget, menu, index: int) -> None:
+        """为预览区域控件绑定跨平台右键菜单事件。"""
+        sequences = ["<Button-3>"]
+        if platform.system() == "Darwin":
+            sequences.extend(("<Button-2>", "<Control-Button-1>"))
+        for sequence in sequences:
+            widget.bind(
+                sequence,
+                lambda event, context_menu=menu, idx=index: self._show_preview_context_menu(
+                    event, context_menu, idx
+                ),
+                add="+",
+            )
+
+    def _populate_preview_context_menu(self, menu, index: int) -> None:
+        """根据对应图片文件夹是否已打开，动态生成右键菜单。"""
+        menu.delete(0, tk.END)
+        if not self.folder_paths[index]:
+            menu.add_command(
+                label=f"打开{self.FOLDER_NAMES[index]}",
+                command=lambda idx=index: self._select_folder(idx),
+            )
+            return
+
+        menu.add_command(
+            label="打开",
+            command=lambda idx=index: self._open_image_file(idx),
+        )
+        menu.add_command(
+            label="打开方式",
+            command=lambda idx=index: self._open_image_with(idx),
+        )
+        menu.add_command(
+            label="拷贝",
+            command=lambda idx=index: self._copy_image_file(idx),
+        )
+        menu.add_command(
+            label="拷贝路径",
+            command=lambda idx=index: self._copy_image_path(idx),
+        )
+
+    def _show_preview_context_menu(self, event, menu, index: int):
+        """在鼠标位置显示图片预览区域的右键菜单。"""
+        self._populate_preview_context_menu(menu, index)
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+        return "break"
+
     def _get_displayed_image_path(self, index):
         """返回指定预览栏当前实际显示的图片路径（含盲选与遮罩）。"""
         if index < 0 or index >= 3:
@@ -2525,6 +2585,138 @@ class PicPickerApp:
                 subprocess.run(["xdg-open", file_path_str])
         except Exception as e:
             messagebox.showerror("错误", f"无法打开文件：\n{str(e)}")
+
+    def _open_image_with(self, index):
+        """调用系统“打开方式”，让用户选择应用打开当前实际显示的文件。"""
+        file_path = self._get_displayed_image_path(index)
+        if file_path is None:
+            return
+
+        file_path_str = str(file_path.absolute())
+        system = platform.system()
+        try:
+            if system == "Darwin":
+                script = (
+                    "on run argv\n"
+                    "set targetFile to POSIX file (item 1 of argv)\n"
+                    "set chosenApp to choose application with prompt "
+                    '"选择用于打开图片的应用"\n'
+                    "tell chosenApp to open targetFile\n"
+                    "end run"
+                )
+                result = subprocess.run(
+                    ["osascript", "-e", script, "--", file_path_str],
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode != 0 and "-128" not in result.stderr:
+                    raise RuntimeError(result.stderr.strip() or "无法选择应用")
+            elif system == "Windows":
+                subprocess.Popen(
+                    ["rundll32.exe", "shell32.dll,OpenAs_RunDLL", file_path_str]
+                )
+            else:
+                messagebox.showinfo(
+                    "打开方式",
+                    "当前系统暂不支持调用系统应用选择器。",
+                    parent=self.root,
+                )
+        except Exception as e:
+            messagebox.showerror("错误", f"无法选择打开方式：\n{str(e)}")
+
+    def _copy_image_file(self, index):
+        """将当前实际显示的图片文件作为文件对象写入系统剪贴板。"""
+        file_path = self._get_displayed_image_path(index)
+        if file_path is None:
+            return
+
+        file_path = file_path.absolute()
+        system = platform.system()
+        try:
+            if system == "Darwin":
+                script = (
+                    'ObjC.import("AppKit");\n'
+                    'ObjC.import("Foundation");\n'
+                    "function run(argv) {\n"
+                    "  const fileURL = $.NSURL.fileURLWithPath($(argv[0]));\n"
+                    "  const pasteboard = $.NSPasteboard.generalPasteboard;\n"
+                    "  pasteboard.clearContents;\n"
+                    "  const files = $.NSArray.arrayWithObject(fileURL);\n"
+                    "  if (!pasteboard.writeObjects(files)) {\n"
+                    '    throw new Error("无法向剪贴板写入文件 URL");\n'
+                    "  }\n"
+                    "}\n"
+                )
+                result = subprocess.run(
+                    [
+                        "osascript",
+                        "-l",
+                        "JavaScript",
+                        "-e",
+                        script,
+                        str(file_path),
+                    ],
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode != 0:
+                    raise RuntimeError(result.stderr.strip() or "无法拷贝文件")
+            elif system == "Windows":
+                script = (
+                    "Add-Type -AssemblyName System.Windows.Forms; "
+                    "$files = New-Object System.Collections.Specialized.StringCollection; "
+                    "[void]$files.Add($args[0]); "
+                    "[System.Windows.Forms.Clipboard]::SetFileDropList($files)"
+                )
+                result = subprocess.run(
+                    [
+                        "powershell.exe",
+                        "-STA",
+                        "-NoProfile",
+                        "-Command",
+                        script,
+                        str(file_path),
+                    ],
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode != 0:
+                    raise RuntimeError(result.stderr.strip() or "无法拷贝文件")
+            elif shutil.which("wl-copy"):
+                subprocess.run(
+                    ["wl-copy", "--type", "text/uri-list"],
+                    input=file_path.as_uri(),
+                    text=True,
+                    check=True,
+                )
+            elif shutil.which("xclip"):
+                subprocess.run(
+                    ["xclip", "-selection", "clipboard", "-t", "text/uri-list"],
+                    input=file_path.as_uri(),
+                    text=True,
+                    check=True,
+                )
+            else:
+                raise RuntimeError("当前系统缺少可写入文件剪贴板的工具")
+
+            self.status_label.config(text=f"已拷贝图片文件：{file_path}")
+        except Exception as e:
+            messagebox.showerror("错误", f"无法拷贝图片文件：\n{str(e)}")
+
+    def _copy_image_path(self, index):
+        """将当前实际显示图片的绝对路径作为纯文本写入剪贴板。"""
+        file_path = self._get_displayed_image_path(index)
+        if file_path is None:
+            return
+
+        absolute_path = str(file_path.absolute())
+        try:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(absolute_path)
+            self.root.update_idletasks()
+            self.status_label.config(text=f"已拷贝图片路径：{absolute_path}")
+        except Exception as e:
+            messagebox.showerror("错误", f"无法拷贝图片路径：\n{str(e)}")
     
     def _update_path_status(self, index):
         """更新路径状态显示（显示图片路径和遮罩路径，以及对应的像素尺寸）"""
