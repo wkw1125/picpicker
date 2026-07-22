@@ -47,6 +47,13 @@ jobs:
       - name: Install locked dependencies
         run: uv sync --frozen --group build
 
+      - name: Generate application version
+        shell: bash
+        run: |
+          printf 'VERSION = "%s"\n' \
+            "${{ steps.version.outputs.value }}" \
+            > picpicker/_build_version.py
+
       - name: Build application
         run: >-
           uv run --no-sync pyinstaller

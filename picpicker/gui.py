@@ -17,6 +17,8 @@ import sys
 import tempfile
 from io import StringIO
 
+from picpicker.version import VERSION
+
 try:
     from tkinterdnd2 import COPY, DND_FILES, TkinterDnD
     _DND_AVAILABLE = True
@@ -3938,9 +3940,10 @@ class PicPickerApp:
             pass
 
     def _show_about(self) -> None:
-        """显示关于信息，包括作者与 GitHub 地址。"""
+        """显示关于信息，包括版本、作者与 GitHub 地址。"""
         message = (
-            "PicPicker 比卡拾图\n\n"
+            "PicPicker 比卡拾图\n"
+            f"版本：{VERSION}\n\n"
             "作者：wkw\n"
             "GitHub：https://github.com/wkw1125/picpicker"
         )
