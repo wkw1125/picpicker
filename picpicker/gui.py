@@ -350,45 +350,49 @@ class PicPickerApp:
             accelerator=quit_acc
         )
         
-        # 创建"显示"菜单
-        view_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="显示", menu=view_menu)
-        
-        # 添加显示相关的菜单项
-        view_menu.add_command(
+        # 创建“导航”菜单：集中图片定位、切换和同步操作。
+        navigation_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="导航", menu=navigation_menu)
+
+        navigation_menu.add_command(
             label="上一张图片",
             command=lambda: self._navigate_images(-1),
             accelerator="↑"
         )
-        view_menu.add_command(
+        navigation_menu.add_command(
             label="下一张图片",
             command=lambda: self._navigate_images(1),
             accelerator="↓"
         )
-        view_menu.add_command(
+        navigation_menu.add_command(
             label="跳转到…",
             command=self._jump_to_image,
             accelerator="G"
         )
         search_accelerator = "Cmd+F" if platform.system() == "Darwin" else "Ctrl+F"
-        view_menu.add_command(
+        navigation_menu.add_command(
             label="搜索原图…",
             command=self._show_filename_search,
             accelerator=search_accelerator
         )
         # 原图列表（非模态窗口，显示原图文件夹的缩略图列表）
-        view_menu.add_checkbutton(
+        navigation_menu.add_checkbutton(
             label="原图列表",
             command=self._toggle_image_list_window,
             variable=self.image_list_menu_var,
             accelerator="Cmd+L" if platform.system() == "Darwin" else "Ctrl+L"
         )
-        view_menu.add_separator()
-        view_menu.add_command(
+        navigation_menu.add_separator()
+        navigation_menu.add_command(
             label="对齐到原图",
             command=self._align_to_original,
             accelerator="A"
         )
+
+        # 创建“显示”菜单：集中图片呈现方式和查看状态。
+        view_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="显示", menu=view_menu)
+
         # 切换遮罩/图片：根据当前全局遮罩状态切换，文案随之更新
         view_menu.add_command(
             label="切换遮罩",
