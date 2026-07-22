@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from picpicker.gui import COPY, DND_FILES, PicPickerApp, REFUSE_DROP
+from picpicker.gui import PicPickerApp
 
 
 def make_app():
@@ -45,24 +45,3 @@ def test_displayed_image_path_follows_blind_mode_swap():
 
     assert app._get_displayed_image_path(1) == Path("/images/compare-2.jpg")
     assert app._get_displayed_image_path(2) == Path("/images/compare-1.jpg")
-
-
-def test_drag_init_returns_source_file_with_copy_action(tmp_path):
-    image_path = tmp_path / "image with spaces.png"
-    image_path.write_bytes(b"source image")
-    app = make_app()
-    app.image_lists[0] = [image_path]
-
-    assert app._on_preview_drag_init(None, 0) == (
-        COPY,
-        DND_FILES,
-        (str(image_path.absolute()),),
-    )
-    assert image_path.read_bytes() == b"source image"
-
-
-def test_drag_init_refuses_when_no_source_file_exists():
-    app = make_app()
-    app.image_lists[0] = []
-
-    assert app._on_preview_drag_init(None, 0) == REFUSE_DROP

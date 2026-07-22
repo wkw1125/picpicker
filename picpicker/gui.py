@@ -13,23 +13,17 @@ import zipfile
 import shutil
 import subprocess
 import platform
-import ctypes
-import ctypes.util
 import sys
 import tempfile
 from io import StringIO
 
 try:
-    from tkinterdnd2 import COPY, DND_FILES, REFUSE_DROP, TkinterDnD
+    from tkinterdnd2 import COPY, DND_FILES, TkinterDnD
     _DND_AVAILABLE = True
 except ImportError:
     COPY = "copy"
     DND_FILES = "DND_Files"
-    REFUSE_DROP = "refuse_drop"
     _DND_AVAILABLE = False
-
-
-_MACOS_DRAG_COPY_CALLBACKS = []
 
 
 def _app_icon_path() -> Path | None:
@@ -42,64 +36,6 @@ def _app_icon_path() -> Path | None:
     module_dir = Path(__file__).resolve().parent
     candidates.extend((module_dir / "logo.png", module_dir.parent / "logo.png"))
     return next((path for path in candidates if path.is_file()), None)
-
-
-def _force_macos_drag_copy_operation():
-    """将 TkDND 的 macOS 拖拽源操作限制为 Copy，等价于始终按住 Option 拖拽。"""
-    if platform.system() != "Darwin":
-        return True
-
-    try:
-        objc_path = ctypes.util.find_library("objc") or "/usr/lib/libobjc.A.dylib"
-        objc = ctypes.cdll.LoadLibrary(objc_path)
-        objc.objc_getClass.argtypes = [ctypes.c_char_p]
-        objc.objc_getClass.restype = ctypes.c_void_p
-        objc.sel_registerName.argtypes = [ctypes.c_char_p]
-        objc.sel_registerName.restype = ctypes.c_void_p
-        objc.class_getInstanceMethod.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-        objc.class_getInstanceMethod.restype = ctypes.c_void_p
-        objc.method_setImplementation.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-        objc.method_setImplementation.restype = ctypes.c_void_p
-
-        dnd_view_class = objc.objc_getClass(b"DNDView")
-        if not dnd_view_class:
-            return False
-
-        patched = False
-        modern_selector = objc.sel_registerName(
-            b"draggingSession:sourceOperationMaskForDraggingContext:"
-        )
-        modern_method = objc.class_getInstanceMethod(dnd_view_class, modern_selector)
-        if modern_method:
-            callback_type = ctypes.CFUNCTYPE(
-                ctypes.c_ulong,
-                ctypes.c_void_p,
-                ctypes.c_void_p,
-                ctypes.c_void_p,
-                ctypes.c_long,
-            )
-            callback = callback_type(lambda self, command, session, context: 1)
-            objc.method_setImplementation(modern_method, ctypes.cast(callback, ctypes.c_void_p))
-            _MACOS_DRAG_COPY_CALLBACKS.append(callback)
-            patched = True
-
-        legacy_selector = objc.sel_registerName(b"draggingSourceOperationMaskForLocal:")
-        legacy_method = objc.class_getInstanceMethod(dnd_view_class, legacy_selector)
-        if legacy_method:
-            callback_type = ctypes.CFUNCTYPE(
-                ctypes.c_int,
-                ctypes.c_void_p,
-                ctypes.c_void_p,
-                ctypes.c_bool,
-            )
-            callback = callback_type(lambda self, command, is_local: 1)
-            objc.method_setImplementation(legacy_method, ctypes.cast(callback, ctypes.c_void_p))
-            _MACOS_DRAG_COPY_CALLBACKS.append(callback)
-            patched = True
-
-        return patched
-    except (AttributeError, OSError):
-        return False
 
 
 class PicPickerApp:
@@ -115,11 +51,6 @@ class PicPickerApp:
     
     def __init__(self):
         self.root = (TkinterDnD.Tk() if _DND_AVAILABLE else tk.Tk())
-        # 暂时禁用“从图片框拖出并复制源图片”：在 preview_label 上注册
-        # drag source 会导致同一控件的 CSV drop target 失效。保留相关实现，
-        # 待解决 TkDND 的 source/target 冲突后，将此处恢复为：
-        # _DND_AVAILABLE and _force_macos_drag_copy_operation()
-        self._native_copy_drag_enabled = False
         self.current_csv_path: str | None = None
         self.is_dirty = False
         self._pending_dropped_csv_path: str | None = None
@@ -828,12 +759,6 @@ class PicPickerApp:
             if _DND_AVAILABLE:
                 preview_label.drop_target_register(DND_FILES)
                 preview_label.dnd_bind("<<Drop>>", lambda e, idx=i: self._on_preview_drop(e, idx))
-            if self._native_copy_drag_enabled:
-                preview_label.drag_source_register(1, DND_FILES)
-                preview_label.dnd_bind(
-                    "<<DragInitCmd>>",
-                    lambda e, idx=i: self._on_preview_drag_init(e, idx),
-                )
             self.preview_labels.append(preview_label)
 
             # 图1、图2备注上屏标签：独立于图片层，显隐时无需重新绘制图片。
@@ -1142,13 +1067,6 @@ class PicPickerApp:
                     return
         except Exception:
             pass
-
-    def _on_preview_drag_init(self, event, index):
-        """将当前实际显示文件交给已强制为 Copy 的系统拖拽会话。"""
-        file_path = self._get_displayed_image_path(index)
-        if file_path is None or not file_path.is_file():
-            return REFUSE_DROP
-        return COPY, DND_FILES, (str(file_path.absolute()),)
 
     def _select_folder(self, index):
         """选择文件夹"""
