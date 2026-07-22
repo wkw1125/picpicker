@@ -572,14 +572,13 @@ class PicPickerApp:
             accelerator="."
         )
 
-        # macOS 使用应用菜单中的原生“About PicPicker”，其他平台提供“关于”菜单。
-        if platform.system() != "Darwin":
-            about_menu = tk.Menu(menubar, tearoff=0)
-            menubar.add_cascade(label="关于", menu=about_menu)
-            about_menu.add_command(
-                label="关于 PicPicker",
-                command=self._show_about
-            )
+        # 所有平台均提供“关于”菜单；macOS 原生 About 项也会打开同一窗口。
+        about_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="关于", menu=about_menu)
+        about_menu.add_command(
+            label="关于 PicPicker",
+            command=self._show_about
+        )
         
         # 使用grid布局管理主窗口，确保状态栏不会被挤压
         # 主容器使用grid布局
@@ -3954,7 +3953,7 @@ class PicPickerApp:
     def _register_macos_about_command(self) -> None:
         """让 macOS 应用菜单中的原生 About 项打开应用的关于窗口。"""
         if platform.system() == "Darwin":
-            self.root.createcommand("tk::mac::ShowAbout", self._show_about)
+            self.root.createcommand("tkAboutDialog", self._show_about)
 
     def _set_filename_text(self, index: int, text: str):
         """设置顶部文件名只读文本框内容（用于复制）。"""

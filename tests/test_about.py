@@ -37,6 +37,6 @@ def test_macos_native_about_uses_application_dialog(monkeypatch):
     monkeypatch.setattr(app, "_show_about", lambda: registered.update(opened=True))
 
     app._register_macos_about_command()
-    registered["tk::mac::ShowAbout"]()
+    registered["tkAboutDialog"]()
 
     assert registered["opened"] is True
