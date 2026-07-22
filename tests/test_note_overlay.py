@@ -44,12 +44,12 @@ def test_note_overlay_is_empty_for_missing_or_invalid_image():
 
 
 def test_note_toggle_refreshes_again_after_current_tk_event():
-    class FakeMenu:
+    class FakeBooleanVar:
         def __init__(self):
-            self.label = None
+            self.value = None
 
-        def entryconfig(self, index, *, label):
-            self.label = label
+        def set(self, value):
+            self.value = value
 
     class FakeRoot:
         def __init__(self):
@@ -60,8 +60,7 @@ def test_note_toggle_refreshes_again_after_current_tk_event():
 
     app = PicPickerApp.__new__(PicPickerApp)
     app.show_note_overlay = False
-    app.view_menu = FakeMenu()
-    app.toggle_note_menu_index = 1
+    app.show_note_menu_var = FakeBooleanVar()
     app.root = FakeRoot()
     refresh_calls = []
     app._refresh_note_overlays = lambda: refresh_calls.append(True)
@@ -69,12 +68,33 @@ def test_note_toggle_refreshes_again_after_current_tk_event():
     app._toggle_note_visibility()
 
     assert app.show_note_overlay is True
-    assert app.view_menu.label == "隐藏备注"
+    assert app.show_note_menu_var.value is True
     assert len(refresh_calls) == 1
     assert app.root.idle_callback is not None
 
     app.root.idle_callback()
     assert len(refresh_calls) == 2
+
+
+def test_info_toggle_updates_checked_visibility_state():
+    class FakeBooleanVar:
+        def __init__(self):
+            self.value = None
+
+        def set(self, value):
+            self.value = value
+
+    app = PicPickerApp.__new__(PicPickerApp)
+    app.hide_info_mode = False
+    app.show_info_menu_var = FakeBooleanVar()
+    updated_indices = []
+    app._update_info_visibility = updated_indices.append
+
+    app._toggle_info_visibility()
+
+    assert app.hide_info_mode is True
+    assert app.show_info_menu_var.value is False
+    assert updated_indices == [1, 2]
 
 
 def test_note_text_color_contrasts_with_preview_background():

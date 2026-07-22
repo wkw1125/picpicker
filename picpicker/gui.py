@@ -297,13 +297,13 @@ class PicPickerApp:
         menubar.add_cascade(label="文件", menu=file_menu)
         
         # 添加打开文件夹的菜单项
-        file_menu.add_command(label="打开原图文件夹", command=lambda: self._select_folder(0))
+        file_menu.add_command(label="打开原图文件夹…", command=lambda: self._select_folder(0))
         file_menu.add_separator()
-        file_menu.add_command(label="打开图1文件夹", command=lambda: self._select_folder(1))
-        file_menu.add_command(label="打开图2文件夹", command=lambda: self._select_folder(2))
+        file_menu.add_command(label="打开图1文件夹…", command=lambda: self._select_folder(1))
+        file_menu.add_command(label="打开图2文件夹…", command=lambda: self._select_folder(2))
         file_menu.add_separator()
-        file_menu.add_command(label="打开图1遮罩文件夹", command=lambda: self._select_mask_folder(1))
-        file_menu.add_command(label="打开图2遮罩文件夹", command=lambda: self._select_mask_folder(2))
+        file_menu.add_command(label="打开图1遮罩文件夹…", command=lambda: self._select_mask_folder(1))
+        file_menu.add_command(label="打开图2遮罩文件夹…", command=lambda: self._select_mask_folder(2))
         file_menu.add_separator()
         # 检测操作系统以确定快捷键显示
         system = platform.system()
@@ -313,7 +313,7 @@ class PicPickerApp:
             open_accelerator = "Ctrl+O"
         
         file_menu.add_command(
-            label="从标记文件打开",
+            label="打开标记文件…",
             command=self._import_from_csv,
             accelerator=open_accelerator
         )
@@ -327,12 +327,12 @@ class PicPickerApp:
             accelerator=save_mark_acc
         )
         file_menu.add_command(
-            label="另存为标记",
+            label="另存为标记…",
             command=self._save_csv_as,
             accelerator=save_as_acc
         )
         file_menu.add_command(
-            label="保存标记与图片",
+            label="导出标记与图片…",
             command=self._export_marked_images,
             accelerator=save_mark_images_acc
         )
@@ -340,7 +340,7 @@ class PicPickerApp:
         close_acc = "Cmd+W" if system == "Darwin" else "Ctrl+W"
         quit_acc = "Cmd+Q" if system == "Darwin" else "Ctrl+Q"
         file_menu.add_command(
-            label="关闭文件夹",
+            label="关闭所有文件夹",
             command=self._close_folders,
             accelerator=close_acc
         )
@@ -366,15 +366,22 @@ class PicPickerApp:
             accelerator="↓"
         )
         view_menu.add_command(
-            label="跳转到",
+            label="跳转到…",
             command=self._jump_to_image,
             accelerator="G"
         )
         search_accelerator = "Cmd+F" if platform.system() == "Darwin" else "Ctrl+F"
         view_menu.add_command(
-            label="搜索原图",
+            label="搜索原图…",
             command=self._show_filename_search,
             accelerator=search_accelerator
+        )
+        # 原图列表（非模态窗口，显示原图文件夹的缩略图列表）
+        view_menu.add_checkbutton(
+            label="原图列表",
+            command=self._toggle_image_list_window,
+            variable=self.image_list_menu_var,
+            accelerator="Cmd+L" if platform.system() == "Darwin" else "Ctrl+L"
         )
         view_menu.add_separator()
         view_menu.add_command(
@@ -392,7 +399,7 @@ class PicPickerApp:
         self.toggle_mask_menu_index = view_menu.index(tk.END)
         view_menu.add_separator()
 
-        # 盲选模式（在「隐藏图片信息」上方）
+        # 查看状态统一使用勾选项，勾选表示该功能当前已启用或内容可见。
         self.blind_mode_var = tk.BooleanVar(value=False)
         blind_accelerator = "Cmd+B" if platform.system() == "Darwin" else "Ctrl+B"
         view_menu.add_checkbutton(
@@ -401,37 +408,25 @@ class PicPickerApp:
             variable=self.blind_mode_var,
             accelerator=blind_accelerator
         )
-        # 隐藏图片信息
-        view_menu.add_command(
-            label="隐藏图片信息",
+
+        self.show_info_menu_var = tk.BooleanVar(value=True)
+        view_menu.add_checkbutton(
+            label="显示图片信息",
             command=self._toggle_info_visibility,
+            variable=self.show_info_menu_var,
             accelerator="I"
         )
 
-        view_menu.add_separator()
-
         # 备注上屏开关（默认显示）
-        view_menu.add_command(
-            label="隐藏备注",
+        self.show_note_menu_var = tk.BooleanVar(value=True)
+        view_menu.add_checkbutton(
+            label="显示备注",
             command=self._toggle_note_visibility,
+            variable=self.show_note_menu_var,
             accelerator="C"
         )
-        self.toggle_note_menu_index = view_menu.index(tk.END)
-        # 保存菜单引用，并通过标签查找「隐藏/显示图片信息」的索引（用于切换时更新文字）
         self.view_menu = view_menu
-        menu_count = view_menu.index(tk.END)
-        self.toggle_info_menu_index = None
-        for i in range(menu_count):
-            try:
-                label = view_menu.entryconfig(i, 'label')[4]
-                if label in ["隐藏图片信息", "显示图片信息"]:
-                    self.toggle_info_menu_index = i
-                    break
-            except Exception:
-                continue
-        if self.toggle_info_menu_index is None:
-            self.toggle_info_menu_index = 1
-        
+
         # 添加放大镜开关
         self.magnifier_menu_var = tk.BooleanVar(value=False)
         view_menu.add_checkbutton(
@@ -467,13 +462,6 @@ class PicPickerApp:
                 value=position,
                 command=self._change_image_position,
             )
-        # 原图列表（非模态窗口，显示原图文件夹的缩略图列表）
-        view_menu.add_checkbutton(
-            label="原图列表",
-            command=self._toggle_image_list_window,
-            variable=self.image_list_menu_var,
-            accelerator="Cmd+L" if platform.system() == "Darwin" else "Ctrl+L"
-        )
         
         # 创建"标记"菜单
         mark_menu = tk.Menu(menubar, tearoff=0)
@@ -520,24 +508,24 @@ class PicPickerApp:
         )
         invert_acc = "Cmd+R" if platform.system() == "Darwin" else "Ctrl+R"
         mark_menu.add_command(
-            label="反转标记",
+            label="反转标记…",
             command=self._invert_selections,
             accelerator=invert_acc
         )
         reset_acc = "Cmd+Shift+R" if platform.system() == "Darwin" else "Ctrl+Shift+R"
         mark_menu.add_command(
-            label="重置标记",
+            label="重置标记…",
             command=self._reset_selections,
             accelerator=reset_acc
         )
         mark_menu.add_separator()
         mark_menu.add_command(
-            label="备注图1",
+            label="备注图1…",
             command=lambda: self._edit_note(1),
             accelerator="["
         )
         mark_menu.add_command(
-            label="备注图2",
+            label="备注图2…",
             command=lambda: self._edit_note(2),
             accelerator="]"
         )
@@ -3315,8 +3303,8 @@ class PicPickerApp:
                 self.hide_info_mode = True
                 if hasattr(self, "toggle_info_btn"):
                     self.toggle_info_btn.config(text="显示图片信息(I)")
-                if hasattr(self, 'view_menu') and hasattr(self, 'toggle_info_menu_index'):
-                    self.view_menu.entryconfig(self.toggle_info_menu_index, label="显示图片信息")
+                if hasattr(self, "show_info_menu_var"):
+                    self.show_info_menu_var.set(False)
                 for index in [1, 2]:
                     self._update_info_visibility(index)
                 messagebox.showinfo("盲选模式", "盲选模式下已自动隐藏图片信息")
@@ -3333,8 +3321,8 @@ class PicPickerApp:
                 self.hide_info_mode = False
                 if hasattr(self, "toggle_info_btn"):
                     self.toggle_info_btn.config(text="隐藏图片信息(I)")
-                if hasattr(self, 'view_menu') and hasattr(self, 'toggle_info_menu_index'):
-                    self.view_menu.entryconfig(self.toggle_info_menu_index, label="隐藏图片信息")
+                if hasattr(self, "show_info_menu_var"):
+                    self.show_info_menu_var.set(True)
                 for index in [1, 2]:
                     self._update_info_visibility(index)
             messagebox.showinfo("盲选模式", "已退出盲选模式")
@@ -3354,12 +3342,8 @@ class PicPickerApp:
             else:
                 self.toggle_info_btn.config(text="隐藏图片信息(I)")
         
-        # 更新菜单项文本
-        if hasattr(self, 'view_menu') and hasattr(self, 'toggle_info_menu_index'):
-            if self.hide_info_mode:
-                self.view_menu.entryconfig(self.toggle_info_menu_index, label="显示图片信息")
-            else:
-                self.view_menu.entryconfig(self.toggle_info_menu_index, label="隐藏图片信息")
+        if hasattr(self, "show_info_menu_var"):
+            self.show_info_menu_var.set(not self.hide_info_mode)
         
         # 更新图1和图2的信息显示
         for index in [1, 2]:
@@ -3368,9 +3352,8 @@ class PicPickerApp:
     def _toggle_note_visibility(self):
         """切换图1和图2预览框内的备注上屏显示。"""
         self.show_note_overlay = not self.show_note_overlay
-        if hasattr(self, "view_menu") and hasattr(self, "toggle_note_menu_index"):
-            label = "隐藏备注" if self.show_note_overlay else "显示备注"
-            self.view_menu.entryconfig(self.toggle_note_menu_index, label=label)
+        if hasattr(self, "show_note_menu_var"):
+            self.show_note_menu_var.set(self.show_note_overlay)
         self._refresh_note_overlays()
         # 菜单关闭发生在 command 返回之后；idle 阶段再刷新一次可规避 macOS Tk
         # 在菜单仍处于激活状态时不重绘覆盖 Label 的问题。
@@ -3750,17 +3733,17 @@ class PicPickerApp:
                 self.toggle_info_btn.config(text="隐藏图片信息(I)")
             except Exception:
                 pass
-        if hasattr(self, "view_menu") and hasattr(self, "toggle_info_menu_index"):
+        if hasattr(self, "show_info_menu_var"):
             try:
-                self.view_menu.entryconfig(self.toggle_info_menu_index, label="隐藏图片信息")
+                self.show_info_menu_var.set(True)
             except Exception:
                 pass
 
         # 备注上屏恢复默认显示状态
         self.show_note_overlay = True
-        if hasattr(self, "view_menu") and hasattr(self, "toggle_note_menu_index"):
+        if hasattr(self, "show_note_menu_var"):
             try:
-                self.view_menu.entryconfig(self.toggle_note_menu_index, label="隐藏备注")
+                self.show_note_menu_var.set(True)
             except Exception:
                 pass
         for note_label in getattr(self, "note_overlay_labels", []):
