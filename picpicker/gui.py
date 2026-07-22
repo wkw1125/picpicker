@@ -642,19 +642,24 @@ class PicPickerApp:
         bg_color_label.pack(side=tk.LEFT, padx=5)
         
         # 背景颜色单选按钮组（使用色块显示）
-        for color_option in self.bg_color_order:
+        for shortcut_number, color_option in enumerate(self.bg_color_order, start=1):
+            bg_color = self.bg_colors[color_option]
+            fg_color = self._get_contrasting_text_color(bg_color)
             # 创建单选按钮（使用indicatoron=0显示为色块）
             bg_radio = tk.Radiobutton(
                 right_button_frame,
+                text=str(shortcut_number),
                 variable=self.bg_color_var,
                 value=color_option,
                 command=self._change_bg_color,
                 indicatoron=0,  # 隐藏单选按钮的圆圈，显示为按钮样式
                 width=3,
                 height=1,
-                bg=self.bg_colors[color_option],
-                selectcolor=self.bg_colors[color_option],  # 选中时的颜色
-                activebackground=self.bg_colors[color_option],  # 鼠标悬停时的颜色
+                bg=bg_color,
+                fg=fg_color,
+                selectcolor=bg_color,  # 选中时的颜色
+                activebackground=bg_color,  # 鼠标悬停时的颜色
+                activeforeground=fg_color,
                 relief=tk.RAISED,
                 borderwidth=2
             )
