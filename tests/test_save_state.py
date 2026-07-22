@@ -152,3 +152,18 @@ def test_failed_save_preserves_current_path_and_dirty_state(tmp_path, monkeypatc
     assert app.is_dirty is True
     assert errors == ["保存CSV文件失败：\ndisk full"]
 
+
+def test_dropped_csv_import_waits_until_native_drop_callback_has_returned():
+    app = make_app()
+    scheduled = []
+    imported_paths = []
+    app.root.after = lambda delay, callback: scheduled.append((delay, callback))
+    app._request_import_from_csv_file = imported_paths.append
+
+    app._queue_dropped_csv_import("/tmp/next.csv")
+
+    assert imported_paths == []
+    assert scheduled[0][0] == 100
+
+    scheduled[0][1]()
+    assert imported_paths == ["/tmp/next.csv"]

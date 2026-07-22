@@ -118,6 +118,7 @@ class PicPickerApp:
         self._native_copy_drag_enabled = _DND_AVAILABLE and _force_macos_drag_copy_operation()
         self.current_csv_path: str | None = None
         self.is_dirty = False
+        self._pending_dropped_csv_path: str | None = None
         self.root.title(self.APP_TITLE)
         self._set_app_icon()
         self.root.geometry("1400x950")
@@ -1103,8 +1104,8 @@ class PicPickerApp:
                     s = unquote(s[7:].lstrip("/"))
                 p = Path(s)
                 if p.is_file() and p.suffix.lower() == ".csv":
-                    self._request_import_from_csv_file(str(p))
-                    return
+                    self._queue_dropped_csv_import(str(p))
+                    return COPY
                 if p.is_dir():
                     path_str = str(p)
                     if index in (1, 2) and self.folder_paths[index]:
@@ -3936,8 +3937,8 @@ class PicPickerApp:
                     s = unquote(s[7:].lstrip("/"))
                 p = Path(s)
                 if p.is_file() and p.suffix.lower() == ".csv":
-                    self._request_import_from_csv_file(str(p))
-                    return
+                    self._queue_dropped_csv_import(str(p))
+                    return COPY
         except Exception:
             pass
 
@@ -3962,6 +3963,23 @@ class PicPickerApp:
         if not self._confirm_unsaved_changes("打开其他 CSV"):
             return False
         return self._import_from_csv_file(csv_path)
+
+    def _queue_dropped_csv_import(self, csv_path: str) -> None:
+        """让原生 DnD 回调先返回，再执行可能弹出模态窗口的导入流程。"""
+        if getattr(self, "_pending_dropped_csv_path", None) is not None:
+            return
+        self._pending_dropped_csv_path = csv_path
+        self.root.after(
+            100,
+            lambda path=csv_path: self._run_queued_csv_import(path),
+        )
+
+    def _run_queued_csv_import(self, csv_path: str) -> None:
+        """在原生拖放会话结束后处理拖入的 CSV。"""
+        if getattr(self, "_pending_dropped_csv_path", None) != csv_path:
+            return
+        self._pending_dropped_csv_path = None
+        self._request_import_from_csv_file(csv_path)
 
     def _validate_csv_format(self, csv_path):
         """检查 CSV 是否符合当前导出的格式规则。返回 (True, None) 或 (False, 错误提示)。"""
