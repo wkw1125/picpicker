@@ -7,11 +7,6 @@
 ## 下载
 
 [![最新版本](https://img.shields.io/github/v/release/wkw1125/picpicker?label=最新版本)](https://github.com/wkw1125/picpicker/releases/latest)
-[![累计下载](https://img.shields.io/github/downloads/wkw1125/picpicker/total?label=累计下载)](https://github.com/wkw1125/picpicker/releases)
-
-- [下载 Windows x64 版](https://github.com/wkw1125/picpicker/releases/latest/download/PicPicker-Windows-x64.zip)
-- [下载 macOS Apple Silicon 版](https://github.com/wkw1125/picpicker/releases/latest/download/PicPicker-macOS-arm64.zip)
-- [查看版本说明与历史版本](https://github.com/wkw1125/picpicker/releases)
 
 ## 关于 AI vibe coding
 
