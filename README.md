@@ -4,6 +4,15 @@
 
 ![PicPicker 预览图](picpicker.png)
 
+## 下载
+
+[![最新版本](https://img.shields.io/github/v/release/wkw1125/picpicker?label=最新版本)](https://github.com/wkw1125/picpicker/releases/latest)
+[![累计下载](https://img.shields.io/github/downloads/wkw1125/picpicker/total?label=累计下载)](https://github.com/wkw1125/picpicker/releases)
+
+- [下载 Windows x64 版](https://github.com/wkw1125/picpicker/releases/latest/download/PicPicker-Windows-x64.zip)
+- [下载 macOS Apple Silicon 版](https://github.com/wkw1125/picpicker/releases/latest/download/PicPicker-macOS-arm64.zip)
+- [查看版本说明与历史版本](https://github.com/wkw1125/picpicker/releases)
+
 ## 关于 AI vibe coding
 
 本项目从需求整理、技术选型到功能设计与实现，完整采用 AI 辅助的 vibe coding 方式推进：通过在 `spec.md` 中逐步迭代需求与细节，再由 AI 生成与修订代码，实现了几乎全程「对话驱动开发」。你可以将 `spec.md` 视作本项目的「设计蓝本」，其中记录了功能目标、交互细节以及若干实现思路，代码则是在这一蓝本的基础上由 AI 持续补全与打磨。
