@@ -170,6 +170,8 @@ class PicPickerApp:
         self.current_bg_color = "默认"  # 当前选择的背景颜色
         # 背景颜色变量（需要在创建界面之前初始化，因为菜单需要使用）
         self.bg_color_var = tk.StringVar(value="默认")
+        # 图片在预览框留白方向上的对齐方式：头部、居中、尾部
+        self.image_position_var = tk.StringVar(value="居中")
         # 过滤：所有 / 有标记 / 有未标记 / 无标记（仅在菜单更改时刷新列表）
         self.filter_mode = "所有"
         self.filter_var = tk.StringVar(value="所有")
@@ -394,7 +396,7 @@ class PicPickerApp:
             accelerator=save_mark_acc
         )
         file_menu.add_command(
-            label="标记另存为",
+            label="另存为标记",
             command=self._save_csv_as,
             accelerator=save_as_acc
         )
@@ -523,6 +525,17 @@ class PicPickerApp:
                 command=self._change_bg_color,
                 accelerator=accelerator
             )
+
+        # 图片位置：横向存在留白时对应左/中/右，纵向存在留白时对应上/中/下。
+        image_position_menu = tk.Menu(view_menu, tearoff=0)
+        view_menu.add_cascade(label="图片位置", menu=image_position_menu)
+        for position in ("头部", "居中", "尾部"):
+            image_position_menu.add_radiobutton(
+                label=position,
+                variable=self.image_position_var,
+                value=position,
+                command=self._change_image_position,
+            )
         # 原图列表（非模态窗口，显示原图文件夹的缩略图列表）
         view_menu.add_checkbutton(
             label="原图列表",
@@ -625,7 +638,7 @@ class PicPickerApp:
         left_hint_frame.grid_columnconfigure(0, weight=1)
         self.key_hint_label = tk.Label(
             left_hint_frame,
-            text="↑↓ 切换图片 | ←→ 标记图1/图2 | M 切换遮罩 | S 放大镜 | 双击打开原图 | 拖拽复制内容",
+            text="↑↓ 切换图片 | ←→ 标记图1/图2 | M 切换遮罩 | S 放大镜 | 双击打开原图",
             font=("Arial", 9),
             fg="#000000",
             anchor=tk.W
@@ -1256,10 +1269,16 @@ class PicPickerApp:
             if not self.folder_paths[index] or not self.image_lists[index]:
                 # 未选择文件夹，显示提示文字
                 folder_name = self.FOLDER_NAMES[index]
-                self.preview_labels[index].config(image='', text=f"打开{folder_name}", cursor="hand2")
+                self.preview_labels[index].config(
+                    image='', text=f"打开{folder_name}", cursor="hand2", anchor=tk.CENTER
+                )
+                self.preview_labels[index].image = None
             else:
                 # 已选择文件夹但没有图片或索引无效
-                self.preview_labels[index].config(image='', text="暂无图片", cursor="")
+                self.preview_labels[index].config(
+                    image='', text="暂无图片", cursor="", anchor=tk.CENTER
+                )
+                self.preview_labels[index].image = None
             # 如果图1或图2在隐藏模式下，显示"该信息已隐藏"
             if self.hide_info_mode and index >= 1:
                 self._set_filename_text(index, "该信息已隐藏")
@@ -1307,7 +1326,12 @@ class PicPickerApp:
             photo = ImageTk.PhotoImage(img_resized)
             
             # 更新预览框
-            self.preview_labels[index].config(image=photo, text="", cursor="")
+            self.preview_labels[index].config(
+                image=photo,
+                text="",
+                cursor="",
+                anchor=self._get_preview_image_anchor(),
+            )
             self.preview_labels[index].image = photo  # 保持引用
             
             # 更新文件名显示（含后缀，不含目录）
@@ -1330,7 +1354,10 @@ class PicPickerApp:
             
         except Exception as e:
             messagebox.showerror("错误", f"无法加载图片: {image_path}\n{str(e)}")
-            self.preview_labels[index].config(image='', text="加载失败")
+            self.preview_labels[index].config(
+                image='', text="加载失败", anchor=tk.CENTER
+            )
+            self.preview_labels[index].image = None
             self._set_filename_text(index, image_path.name)
             # 更新选中标志和状态显示（只针对图1文件夹和图2文件夹）
             self._update_selection_display(index)
@@ -1371,6 +1398,41 @@ class PicPickerApp:
         
         # 如果放大镜启用且鼠标在预览图上，刷新放大镜（背景色改变）
         self._refresh_magnifier_if_needed()
+
+    def _get_preview_image_anchor(self):
+        """返回当前图片位置对应的 Tk Label 锚点。"""
+        return {
+            "头部": tk.NW,
+            "居中": tk.CENTER,
+            "尾部": tk.SE,
+        }.get(self.image_position_var.get(), tk.CENTER)
+
+    def _change_image_position(self):
+        """更新三个预览框内图片的对齐位置，不重新缩放图片。"""
+        anchor = self._get_preview_image_anchor()
+        for preview_label in self.preview_labels:
+            if getattr(preview_label, "image", None) is not None:
+                preview_label.config(anchor=anchor)
+            else:
+                preview_label.config(anchor=tk.CENTER)
+        self._refresh_magnifier_if_needed()
+
+    def _get_preview_image_offsets(
+        self,
+        preview_width: int,
+        preview_height: int,
+        display_width: int,
+        display_height: int,
+    ) -> tuple[int, int]:
+        """返回缩放图片在预览框中的偏移，供放大镜坐标换算使用。"""
+        free_width = max(0, preview_width - display_width)
+        free_height = max(0, preview_height - display_height)
+        position = self.image_position_var.get()
+        if position == "头部":
+            return 0, 0
+        if position == "尾部":
+            return free_width, free_height
+        return free_width // 2, free_height // 2
 
     @staticmethod
     def _get_contrasting_text_color(bg_color: str) -> str:
@@ -1886,9 +1948,13 @@ class PicPickerApp:
                         display_width = int(img_width * scale)
                         display_height = int(img_height * scale)
                         
-                        # 计算图像在预览图中的偏移（居中显示）
-                        offset_x = (preview_width - display_width) // 2
-                        offset_y = (preview_height - display_height) // 2
+                        # 计算图像按当前位置设置显示时的偏移
+                        offset_x, offset_y = self._get_preview_image_offsets(
+                            preview_width,
+                            preview_height,
+                            display_width,
+                            display_height,
+                        )
                         
                         # 将鼠标坐标转换为图像坐标
                         if (offset_x <= preview_x <= offset_x + display_width and
@@ -1972,9 +2038,13 @@ class PicPickerApp:
                                 display_width = int(img_width * scale)
                                 display_height = int(img_height * scale)
                                 
-                                # 计算图像在预览图中的偏移（居中显示）
-                                offset_x = (preview_width - display_width) // 2
-                                offset_y = (preview_height - display_height) // 2
+                                # 计算图像按当前位置设置显示时的偏移
+                                offset_x, offset_y = self._get_preview_image_offsets(
+                                    preview_width,
+                                    preview_height,
+                                    display_width,
+                                    display_height,
+                                )
                                 
                                 # 将鼠标坐标转换为图像坐标
                                 if (offset_x <= preview_x <= offset_x + display_width and
@@ -2041,9 +2111,13 @@ class PicPickerApp:
             display_width = int(img_width * scale)
             display_height = int(img_height * scale)
             
-            # 计算图像在预览图中的偏移（居中显示）
-            offset_x = (preview_width - display_width) // 2
-            offset_y = (preview_height - display_height) // 2
+            # 计算图像按当前位置设置显示时的偏移
+            offset_x, offset_y = self._get_preview_image_offsets(
+                preview_width,
+                preview_height,
+                display_width,
+                display_height,
+            )
             
             # 将鼠标坐标转换为图像坐标
             if preview_x < offset_x or preview_x > offset_x + display_width:
@@ -3637,7 +3711,12 @@ class PicPickerApp:
             if i < len(getattr(self, "preview_labels", [])):
                 try:
                     folder_name = self.FOLDER_NAMES[i]
-                    self.preview_labels[i].config(image="", text=f"打开{folder_name}", cursor="hand2")
+                    self.preview_labels[i].config(
+                        image="",
+                        text=f"打开{folder_name}",
+                        cursor="hand2",
+                        anchor=tk.CENTER,
+                    )
                     self.preview_labels[i].image = None
                 except Exception:
                     pass
