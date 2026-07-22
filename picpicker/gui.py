@@ -115,7 +115,11 @@ class PicPickerApp:
     
     def __init__(self):
         self.root = (TkinterDnD.Tk() if _DND_AVAILABLE else tk.Tk())
-        self._native_copy_drag_enabled = _DND_AVAILABLE and _force_macos_drag_copy_operation()
+        # 暂时禁用“从图片框拖出并复制源图片”：在 preview_label 上注册
+        # drag source 会导致同一控件的 CSV drop target 失效。保留相关实现，
+        # 待解决 TkDND 的 source/target 冲突后，将此处恢复为：
+        # _DND_AVAILABLE and _force_macos_drag_copy_operation()
+        self._native_copy_drag_enabled = False
         self.current_csv_path: str | None = None
         self.is_dirty = False
         self._pending_dropped_csv_path: str | None = None
