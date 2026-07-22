@@ -75,3 +75,12 @@ def test_note_toggle_refreshes_again_after_current_tk_event():
 
     app.root.idle_callback()
     assert len(refresh_calls) == 2
+
+
+def test_note_text_color_contrasts_with_preview_background():
+    assert PicPickerApp._get_contrasting_text_color("#FFFFFF") == "#000000"
+    assert PicPickerApp._get_contrasting_text_color("#e0e0e0") == "#000000"
+    assert PicPickerApp._get_contrasting_text_color("#000000") == "#FFFFFF"
+    assert PicPickerApp._get_contrasting_text_color("#990000") == "#FFFFFF"
+    assert PicPickerApp._get_contrasting_text_color("#006400") == "#FFFFFF"
+    assert PicPickerApp._get_contrasting_text_color("#0000AA") == "#FFFFFF"

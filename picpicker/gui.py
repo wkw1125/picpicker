@@ -799,8 +799,12 @@ class PicPickerApp:
                     preview_container,
                     text="",
                     font=("Arial", 12),
-                    fg="#666666",
-                    bg="#D9D9D9",
+                    fg=self._get_contrasting_text_color(
+                        self.bg_colors[self.current_bg_color]
+                    ),
+                    # Tk Label 不支持真正透明；与勾选标志相同，通过同步
+                    # 预览背景色实现视觉上的透明底色。
+                    bg=self.bg_colors[self.current_bg_color],
                     justify=tk.LEFT,
                     anchor="w",
                     padx=8,
@@ -1339,6 +1343,7 @@ class PicPickerApp:
         """更改预览图容器的背景颜色"""
         self.current_bg_color = self.bg_color_var.get()
         bg_color = self.bg_colors[self.current_bg_color]
+        note_fg = self._get_contrasting_text_color(bg_color)
         
         # 更新所有预览图的背景颜色
         for preview_label in self.preview_labels:
@@ -1348,9 +1353,43 @@ class PicPickerApp:
         for i in range(2):
             if self.check_labels[i + 1]:  # 图1和图2的选中标志
                 self.check_labels[i + 1].config(bg=bg_color)
+
+        # 备注标签与勾选标志采用相同方式模拟透明背景。
+        for note_label in getattr(self, "note_overlay_labels", []):
+            if note_label is not None:
+                note_label.config(bg=bg_color, fg=note_fg)
         
         # 如果放大镜启用且鼠标在预览图上，刷新放大镜（背景色改变）
         self._refresh_magnifier_if_needed()
+
+    @staticmethod
+    def _get_contrasting_text_color(bg_color: str) -> str:
+        """为十六进制背景色选择对比度更高的黑色或白色文字。"""
+        hex_color = bg_color.lstrip("#")
+        if len(hex_color) == 3:
+            hex_color = "".join(channel * 2 for channel in hex_color)
+        if len(hex_color) != 6:
+            return "#000000"
+
+        try:
+            rgb = [int(hex_color[index:index + 2], 16) / 255 for index in (0, 2, 4)]
+        except ValueError:
+            return "#000000"
+
+        linear_rgb = [
+            channel / 12.92
+            if channel <= 0.04045
+            else ((channel + 0.055) / 1.055) ** 2.4
+            for channel in rgb
+        ]
+        luminance = (
+            0.2126 * linear_rgb[0]
+            + 0.7152 * linear_rgb[1]
+            + 0.0722 * linear_rgb[2]
+        )
+        contrast_with_black = (luminance + 0.05) / 0.05
+        contrast_with_white = 1.05 / (luminance + 0.05)
+        return "#000000" if contrast_with_black >= contrast_with_white else "#FFFFFF"
 
     # ===================== 原图列表窗口（原图缩略图） =====================
 
@@ -3034,7 +3073,14 @@ class PicPickerApp:
 
         preview_container = self.preview_labels[slot_index].master
         wraplength = max(1, preview_container.winfo_width() - 16)
-        label.config(text=note_text, wraplength=wraplength)
+        preview_bg = self.bg_colors[self.current_bg_color]
+        note_fg = self._get_contrasting_text_color(preview_bg)
+        label.config(
+            text=note_text,
+            wraplength=wraplength,
+            bg=preview_bg,
+            fg=note_fg,
+        )
         label.place(x=0, rely=1.0, relwidth=1.0, anchor="sw")
         # macOS 下菜单命令执行期间需要明确提升并刷新控件，否则文字可能要等到
         # 窗口焦点变化后才绘制出来。
