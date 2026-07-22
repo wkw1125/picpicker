@@ -29,7 +29,9 @@ def test_windows_registers_view_shortcuts_before_window_maximization(monkeypatch
         "<Control-g>": app._on_key_g,
         "<KeyPress-a>": app._on_key_a,
         "<KeyPress-s>": app._on_key_s,
-        "<KeyPress-c>": app._on_key_c,
+        "<KeyPress-comma>": app._on_key_comma,
+        "<KeyPress-period>": app._on_key_period,
+        "<KeyPress-slash>": app._on_key_slash,
         "<Control-b>": app._on_key_b,
     }
     for sequence, callback in expected_bindings.items():
@@ -38,6 +40,7 @@ def test_windows_registers_view_shortcuts_before_window_maximization(monkeypatch
     assert app.root.global_bindings["<Control-l>"] == app._on_key_l
     assert "<Command-l>" not in app.root.global_bindings
     assert "<KeyPress-g>" not in app.root.bindings
+    assert "<KeyPress-c>" not in app.root.bindings
     assert app.root.focused
 
 
@@ -65,6 +68,24 @@ def test_macos_registers_command_g_for_jump(monkeypatch):
     assert app.root.bindings["<Command-g>"] == app._on_key_g
     assert app.root.bindings["<Command-G>"] == app._on_key_g
     assert "<KeyPress-g>" not in app.root.bindings
+
+
+def test_note_shortcuts_do_not_fire_while_typing_in_text_field():
+    class FakeEntry:
+        def winfo_class(self):
+            return "Entry"
+
+    app = PicPickerApp.__new__(PicPickerApp)
+    app.root = FakeRoot()
+    app.root.focus_get = lambda: FakeEntry()
+    edited_slots = []
+    app._edit_note = edited_slots.append
+    app._toggle_note_visibility = lambda: edited_slots.append("toggle")
+
+    assert app._on_key_comma(None) is None
+    assert app._on_key_period(None) is None
+    assert app._on_key_slash(None) is None
+    assert edited_slots == []
 
 
 def test_windows_registers_new_save_shortcuts(monkeypatch):

@@ -167,10 +167,10 @@ class PicPickerApp:
         self.root.bind('<KeyPress-M>', self._on_key_m)
         self.root.bind('<KeyPress-i>', self._on_key_i)
         self.root.bind('<KeyPress-I>', self._on_key_i)
-        self.root.bind('<KeyPress-c>', self._on_key_c)
-        self.root.bind('<KeyPress-C>', self._on_key_c)
-        # 备注编辑快捷键：[ 图1备注；] 图2备注
-        self.root.bind('<KeyPress>', self._on_keypress_for_note)
+        # 备注快捷键：, 编辑图1；. 编辑图2；/ 切换备注显示。
+        self.root.bind('<KeyPress-comma>', self._on_key_comma)
+        self.root.bind('<KeyPress-period>', self._on_key_period)
+        self.root.bind('<KeyPress-slash>', self._on_key_slash)
 
         # 文件名搜索快捷键
         if platform.system() == "Darwin":
@@ -462,7 +462,7 @@ class PicPickerApp:
             label="显示备注",
             command=self._toggle_note_visibility,
             variable=self.show_note_menu_var,
-            accelerator="C"
+            accelerator="/"
         )
         self.view_menu = view_menu
 
@@ -561,12 +561,12 @@ class PicPickerApp:
         mark_menu.add_command(
             label="备注图1…",
             command=lambda: self._edit_note(1),
-            accelerator="["
+            accelerator=","
         )
         mark_menu.add_command(
             label="备注图2…",
             command=lambda: self._edit_note(2),
-            accelerator="]"
+            accelerator="."
         )
 
         # 创建"关于"菜单
@@ -3407,26 +3407,41 @@ class PicPickerApp:
         # 在菜单仍处于激活状态时不重绘覆盖 Label 的问题。
         self.root.after_idle(self._refresh_note_overlays)
 
-    def _on_key_c(self, event):
-        """处理C键 - 隐藏/显示备注。"""
-        self._toggle_note_visibility()
-
     def _on_key_i(self, event):
         """处理I键 - 隐藏/显示图片信息"""
         self._toggle_info_visibility()
 
-    def _on_keypress_for_note(self, event):
-        """处理全局按键： [ 备注图1； ] 备注图2。"""
+    def _text_input_has_focus(self) -> bool:
+        """文本控件获得焦点时不响应单字符快捷键。"""
         try:
-            ch = getattr(event, "char", "") or ""
-            keysym = getattr(event, "keysym", "") or ""
-            if ch == "[" or keysym == "bracketleft":
-                self._edit_note(1)
-            elif ch == "]" or keysym == "bracketright":
-                self._edit_note(2)
+            focused_widget = self.root.focus_get()
+            return focused_widget is not None and focused_widget.winfo_class() in {
+                "Entry",
+                "TEntry",
+                "Text",
+                "TCombobox",
+                "Spinbox",
+            }
         except Exception:
-            # 避免键盘事件干扰其它交互
-            pass
+            return False
+
+    def _on_key_comma(self, event):
+        """处理逗号键 - 编辑图1备注。"""
+        if not self._text_input_has_focus():
+            self._edit_note(1)
+            return "break"
+
+    def _on_key_period(self, event):
+        """处理句号键 - 编辑图2备注。"""
+        if not self._text_input_has_focus():
+            self._edit_note(2)
+            return "break"
+
+    def _on_key_slash(self, event):
+        """处理斜杠键 - 切换备注显示。"""
+        if not self._text_input_has_focus():
+            self._toggle_note_visibility()
+            return "break"
 
     def _edit_note(self, slot_index: int):
         """为指定槽位（1=图1，2=图2）编辑当前图片的文字备注。"""
