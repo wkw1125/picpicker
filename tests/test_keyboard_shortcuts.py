@@ -52,3 +52,16 @@ def test_windows_registers_main_and_keypad_background_shortcuts(monkeypatch):
         keypad_callback = app.root.bindings[f"<KeyPress-KP_{number}>"]
         assert main_callback.__defaults__ == (number - 1,)
         assert keypad_callback.__defaults__ == (number - 1,)
+
+
+def test_windows_registers_new_save_shortcuts(monkeypatch):
+    monkeypatch.setattr(gui.platform, "system", lambda: "Windows")
+    app = PicPickerApp.__new__(PicPickerApp)
+    app.root = FakeRoot()
+
+    app._bind_keyboard_shortcuts()
+
+    assert "<Control-s>" in app.root.bindings
+    assert "<Control-Shift-s>" in app.root.bindings
+    assert "<Control-Shift-e>" in app.root.bindings
+    assert "<Control-S>" not in app.root.bindings

@@ -16,6 +16,7 @@ import platform
 import ctypes
 import ctypes.util
 import sys
+import tempfile
 from io import StringIO
 
 try:
@@ -103,6 +104,8 @@ def _force_macos_drag_copy_operation():
 
 class PicPickerApp:
     """PicPicker 比卡拾图 应用主类"""
+
+    APP_TITLE = "PicPicker - 比卡拾图"
     
     # 支持的图片格式
     IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff', '.tif', '.webp'}
@@ -113,7 +116,9 @@ class PicPickerApp:
     def __init__(self):
         self.root = (TkinterDnD.Tk() if _DND_AVAILABLE else tk.Tk())
         self._native_copy_drag_enabled = _DND_AVAILABLE and _force_macos_drag_copy_operation()
-        self.root.title("PicPicker - 比卡拾图")
+        self.current_csv_path: str | None = None
+        self.is_dirty = False
+        self.root.title(self.APP_TITLE)
         self._set_app_icon()
         self.root.geometry("1400x950")
         
@@ -201,6 +206,7 @@ class PicPickerApp:
             self.root.dnd_bind("<<Drop>>", self._on_root_drop)
 
         self._bind_keyboard_shortcuts()
+        self.root.protocol("WM_DELETE_WINDOW", self._quit_app)
 
         # 启动后最大化窗口（非全屏）
         self._maximize_window()
@@ -254,7 +260,10 @@ class PicPickerApp:
             self.root.bind('<Command-b>', self._on_key_b)
             self.root.bind('<Command-B>', self._on_key_b)
             self.root.bind('<Command-s>', lambda e: self._export_to_csv())
-            self.root.bind('<Command-S>', lambda e: self._export_marked_images())
+            self.root.bind('<Command-Shift-s>', lambda e: self._save_csv_as())
+            self.root.bind('<Command-Shift-S>', lambda e: self._save_csv_as())
+            self.root.bind('<Command-Shift-e>', lambda e: self._export_marked_images())
+            self.root.bind('<Command-Shift-E>', lambda e: self._export_marked_images())
             self.root.bind('<Command-r>', lambda e: self._invert_selections())
             self.root.bind('<Command-Shift-r>', lambda e: self._reset_selections())
             self.root.bind('<Command-Shift-R>', lambda e: self._reset_selections())
@@ -271,7 +280,10 @@ class PicPickerApp:
             self.root.bind('<Control-b>', self._on_key_b)
             self.root.bind('<Control-B>', self._on_key_b)
             self.root.bind('<Control-s>', lambda e: self._export_to_csv())
-            self.root.bind('<Control-S>', lambda e: self._export_marked_images())
+            self.root.bind('<Control-Shift-s>', lambda e: self._save_csv_as())
+            self.root.bind('<Control-Shift-S>', lambda e: self._save_csv_as())
+            self.root.bind('<Control-Shift-e>', lambda e: self._export_marked_images())
+            self.root.bind('<Control-Shift-E>', lambda e: self._export_marked_images())
             self.root.bind('<Control-r>', lambda e: self._invert_selections())
             self.root.bind('<Control-Shift-r>', lambda e: self._reset_selections())
             self.root.bind('<Control-Shift-R>', lambda e: self._reset_selections())
@@ -369,11 +381,17 @@ class PicPickerApp:
         )
         file_menu.add_separator()
         save_mark_acc = "Cmd+S" if system == "Darwin" else "Ctrl+S"
-        save_mark_images_acc = "Cmd+Shift+S" if system == "Darwin" else "Ctrl+Shift+S"
+        save_as_acc = "Cmd+Shift+S" if system == "Darwin" else "Ctrl+Shift+S"
+        save_mark_images_acc = "Cmd+Shift+E" if system == "Darwin" else "Ctrl+Shift+E"
         file_menu.add_command(
             label="保存标记",
             command=self._export_to_csv,
             accelerator=save_mark_acc
+        )
+        file_menu.add_command(
+            label="标记另存为",
+            command=self._save_csv_as,
+            accelerator=save_as_acc
         )
         file_menu.add_command(
             label="保存标记与图片",
@@ -1026,6 +1044,7 @@ class PicPickerApp:
             if self.filtered_indices:
                 self._sync_indices_from_filtered()
             self._update_all_previews()
+        self._set_dirty(True)
 
     def _show_image_or_mask_choice(self, path_str, index):
         """弹出非模态对话框：将文件夹作为图片还是遮罩？用户点击后再执行，不阻塞拖放返回。"""
@@ -1071,6 +1090,7 @@ class PicPickerApp:
         self.status_label.config(
             text=f"{self.FOLDER_NAMES[index]}遮罩文件夹已加载，共 {mask_count} 张图片"
         )
+        self._set_dirty(True)
 
     def _on_preview_drop(self, event, index):
         """拖拽放入：.csv 按「打开标记文件」处理；文件夹则设该预览框路径或弹出图片/遮罩选择。"""
@@ -1083,7 +1103,7 @@ class PicPickerApp:
                     s = unquote(s[7:].lstrip("/"))
                 p = Path(s)
                 if p.is_file() and p.suffix.lower() == ".csv":
-                    self._import_from_csv_file(str(p))
+                    self._request_import_from_csv_file(str(p))
                     return
                 if p.is_dir():
                     path_str = str(p)
@@ -1163,27 +1183,7 @@ class PicPickerApp:
         )
         self.root.focus_force()  # 弹窗关闭后让主窗口获得焦点
         if folder_path:
-            mask_index = index - 1  # mask_folder_paths的索引（0或1）
-            self.mask_folder_paths[mask_index] = folder_path
-            self.mask_image_lists[mask_index] = self._load_images(folder_path)
-            # 记住这次选择的目录，供所有按钮下次使用（共享记忆）
-            self.last_selected_dir = folder_path
-            
-            # 更新显示
-            self._update_preview(index)
-            # 更新路径状态显示（如果不在隐藏模式下）
-            if not self.hide_info_mode:
-                self._update_path_status(index)
-            else:
-                self.path_status_labels[index].config(text="该信息已隐藏")
-            
-            # 如果图1或图2在隐藏模式下，更新信息显示状态
-            if index >= 1:
-                self._update_info_visibility(index)
-            
-            # 更新底部状态栏提示
-            mask_count = len(self.mask_image_lists[mask_index])
-            self.status_label.config(text=f"{self.FOLDER_NAMES[index]}遮罩文件夹已加载，共 {mask_count} 张图片")
+            self._apply_mask_folder_to_index(index, folder_path)
     
     def _toggle_mask_mode(self):
         """切换遮罩/图片显示模式：全局开关，图1/图2 始终同步。"""
@@ -2591,6 +2591,7 @@ class PicPickerApp:
             return
         # 切换选中状态
         self.selected_states[state_index][current_idx] = not self.selected_states[state_index].get(current_idx, False)
+        self._set_dirty(True)
         
         # 更新显示（两个槽位都刷新，因勾选可能显示在任一侧）
         self._update_selection_display(1)
@@ -3241,10 +3242,13 @@ class PicPickerApp:
 
         def on_ok():
             text = entry.get()
-            if text.strip() == "":
+            new_note = text if text.strip() else ""
+            if new_note == "":
                 self.notes[slot_index - 1].pop(current_idx, None)
             else:
-                self.notes[slot_index - 1][current_idx] = text
+                self.notes[slot_index - 1][current_idx] = new_note
+            if new_note != existing_note:
+                self._set_dirty(True)
             dlg.destroy()
 
             self._refresh_note_overlays()
@@ -3330,16 +3334,21 @@ class PicPickerApp:
                 pass
             return
 
+        changed = False
         # 重置图1文件夹的选中状态
         if self.image_lists[1]:
+            changed = changed or any(self.selected_states[0].values())
             self.selected_states[0] = {i: False for i in range(len(self.image_lists[1]))}
             self._update_selection_display(1)
         
         # 重置图2文件夹的选中状态
         if self.image_lists[2]:
+            changed = changed or any(self.selected_states[1].values())
             self.selected_states[1] = {i: False for i in range(len(self.image_lists[2]))}
             self._update_selection_display(2)
 
+        if changed:
+            self._set_dirty(True)
         self.status_label.config(text="所有标记已重置")
         try:
             self.root.focus_force()
@@ -3379,6 +3388,7 @@ class PicPickerApp:
             }
             self._update_selection_display(2)
 
+        self._set_dirty(True)
         self._refresh_magnifier_if_needed()
         self.status_label.config(text="已反转图1和图2的所有标记")
         try:
@@ -3399,18 +3409,99 @@ class PicPickerApp:
         except Exception as e:
             messagebox.showerror("错误", f"无法打开文件：\n{str(e)}")
 
+    def _set_dirty(self, dirty: bool) -> None:
+        """更新当前文档的未保存状态及窗口标题。"""
+        self.is_dirty = bool(dirty)
+        title = self.APP_TITLE
+        if self.current_csv_path:
+            title += f" — {os.path.abspath(self.current_csv_path)}"
+        if self.is_dirty:
+            title += " *"
+        try:
+            self.root.title(title)
+        except Exception:
+            pass
+
+    def _prompt_unsaved_changes(self, pending_action: str) -> str:
+        """提示处理未保存内容，返回 save、discard 或 cancel。"""
+        result = {"action": "cancel"}
+        dlg = tk.Toplevel(self.root)
+        dlg.title("未保存的更改")
+        dlg.transient(self.root)
+        dlg.resizable(False, False)
+
+        tk.Label(
+            dlg,
+            text=f"当前标记信息尚未保存。\n是否先保存再{pending_action}？",
+            font=("Arial", 11),
+            justify=tk.LEFT,
+        ).pack(padx=24, pady=(20, 16))
+
+        button_frame = tk.Frame(dlg)
+        button_frame.pack(padx=16, pady=(0, 18))
+
+        def choose(action: str) -> None:
+            result["action"] = action
+            dlg.destroy()
+
+        save_button = tk.Button(
+            button_frame,
+            text="保存",
+            width=10,
+            command=lambda: choose("save"),
+            default=tk.ACTIVE,
+        )
+        save_button.pack(side=tk.LEFT, padx=5)
+        tk.Button(
+            button_frame,
+            text="不保存",
+            width=10,
+            command=lambda: choose("discard"),
+        ).pack(side=tk.LEFT, padx=5)
+        tk.Button(
+            button_frame,
+            text="取消",
+            width=10,
+            command=lambda: choose("cancel"),
+        ).pack(side=tk.LEFT, padx=5)
+
+        dlg.protocol("WM_DELETE_WINDOW", lambda: choose("cancel"))
+        dlg.bind("<Return>", lambda event: choose("save"))
+        dlg.bind("<Escape>", lambda event: choose("cancel"))
+        dlg.grab_set()
+        save_button.focus_set()
+        dlg.wait_window(dlg)
+        try:
+            self.root.focus_force()
+        except Exception:
+            pass
+        return result["action"]
+
+    def _confirm_unsaved_changes(self, pending_action: str) -> bool:
+        """处理未保存状态；仅在允许继续后返回 True。"""
+        if not self.is_dirty:
+            return True
+        action = self._prompt_unsaved_changes(pending_action)
+        if action == "save":
+            return self._export_to_csv()
+        return action == "discard"
+
     def _close_folders(self):
         """关闭所有已打开文件夹，清空标记/列表/预览，回到初始状态。"""
-        try:
-            ok = messagebox.askokcancel(
-                "关闭文件夹",
-                "确定要关闭所有文件夹并清空标记与预览吗？",
-                parent=self.root,
-            )
-        except Exception:
-            ok = True
-        if not ok:
-            return
+        if self.is_dirty:
+            if not self._confirm_unsaved_changes("关闭文件夹"):
+                return
+        else:
+            try:
+                ok = messagebox.askokcancel(
+                    "关闭文件夹",
+                    "确定要关闭所有文件夹并清空标记与预览吗？",
+                    parent=self.root,
+                )
+            except Exception:
+                ok = True
+            if not ok:
+                return
         # 停止放大镜任务并隐藏放大镜
         try:
             if self.magnifier_update_id:
@@ -3568,18 +3659,25 @@ class PicPickerApp:
         except Exception:
             pass
 
+        self.current_csv_path = None
+        self._set_dirty(False)
+
     def _quit_app(self):
         """彻底退出应用。"""
-        try:
-            ok = messagebox.askokcancel(
-                "退出",
-                "确定要退出 PicPicker 吗？",
-                parent=self.root,
-            )
-        except Exception:
-            ok = True
-        if not ok:
-            return
+        if self.is_dirty:
+            if not self._confirm_unsaved_changes("退出"):
+                return
+        else:
+            try:
+                ok = messagebox.askokcancel(
+                    "退出",
+                    "确定要退出 PicPicker 吗？",
+                    parent=self.root,
+                )
+            except Exception:
+                ok = True
+            if not ok:
+                return
         try:
             self._close_image_list_window()
         except Exception:
@@ -3838,13 +3936,15 @@ class PicPickerApp:
                     s = unquote(s[7:].lstrip("/"))
                 p = Path(s)
                 if p.is_file() and p.suffix.lower() == ".csv":
-                    self._import_from_csv_file(str(p))
+                    self._request_import_from_csv_file(str(p))
                     return
         except Exception:
             pass
 
     def _import_from_csv(self):
         """从CSV标记文件导入并打开（菜单/快捷键：弹出文件选择框）。"""
+        if not self._confirm_unsaved_changes("打开其他 CSV"):
+            return False
         downloads_dir = os.path.expanduser("~/Downloads")
         csv_path = filedialog.askopenfilename(
             title="选择CSV标记文件",
@@ -3854,7 +3954,14 @@ class PicPickerApp:
         )
         self.root.focus_force()
         if csv_path:
-            self._import_from_csv_file(csv_path)
+            return self._import_from_csv_file(csv_path)
+        return False
+
+    def _request_import_from_csv_file(self, csv_path: str) -> bool:
+        """处理未保存状态后，导入菜单或拖拽指定的 CSV。"""
+        if not self._confirm_unsaved_changes("打开其他 CSV"):
+            return False
+        return self._import_from_csv_file(csv_path)
 
     def _validate_csv_format(self, csv_path):
         """检查 CSV 是否符合当前导出的格式规则。返回 (True, None) 或 (False, 错误提示)。"""
@@ -3885,7 +3992,7 @@ class PicPickerApp:
         ok, err = self._validate_csv_format(csv_path)
         if not ok:
             messagebox.showerror("CSV 格式错误", err)
-            return
+            return False
         try:
             # 读取并解析CSV文件
             with open(csv_path, 'r', encoding='gbk') as csvfile:
@@ -3926,11 +4033,11 @@ class PicPickerApp:
             
             if not folder_path_0:
                 messagebox.showerror("错误", "CSV文件中未找到原图文件夹路径")
-                return
+                return False
             
             if not folder_path_1 and not folder_path_2:
                 messagebox.showerror("错误", "CSV文件中未找到图1或图2文件夹路径")
-                return
+                return False
             
             # 解析第3行：统计信息（可选，用于验证）
             stats_row = rows[2] if len(rows) > 2 else None
@@ -3974,22 +4081,22 @@ class PicPickerApp:
             # 验证文件夹路径是否存在
             if not os.path.exists(folder_path_0):
                 messagebox.showerror("错误", f"原图文件夹路径不存在：\n{folder_path_0}")
-                return
+                return False
             
             if folder_path_1 and not os.path.exists(folder_path_1):
                 messagebox.showerror("错误", f"图1文件夹路径不存在：\n{folder_path_1}")
-                return
+                return False
             
             if folder_path_2 and not os.path.exists(folder_path_2):
                 messagebox.showerror("错误", f"图2文件夹路径不存在：\n{folder_path_2}")
-                return
+                return False
             # 遮罩目录存在性（若填写了路径，则要求存在；否则忽略）
             if mask_folder_path_1 and not os.path.exists(mask_folder_path_1):
                 messagebox.showerror("错误", f"图1遮罩文件夹路径不存在：\n{mask_folder_path_1}")
-                return
+                return False
             if mask_folder_path_2 and not os.path.exists(mask_folder_path_2):
                 messagebox.showerror("错误", f"图2遮罩文件夹路径不存在：\n{mask_folder_path_2}")
-                return
+                return False
             
             # 加载实际文件夹中的图片
             actual_images_0 = self._load_images(folder_path_0)
@@ -4027,7 +4134,7 @@ class PicPickerApp:
                 warning_msg = "检测到以下不一致：\n\n" + "\n".join(warnings) + "\n\n是否继续导入？"
                 if not messagebox.askyesno("警告", warning_msg):
                     self.root.focus_force()  # 弹窗关闭后让主窗口获得焦点
-                    return
+                    return False
                 self.root.focus_force()  # 弹窗关闭后让主窗口获得焦点
             
             # 设置文件夹路径和图片列表
@@ -4142,26 +4249,27 @@ class PicPickerApp:
             self.status_label.config(
                 text=f"已成功从CSV文件导入标记信息：{csv_filename}，共 {total_images} 张图片"
             )
+            self.current_csv_path = os.path.abspath(csv_path)
+            self._set_dirty(False)
+            return True
             
         except Exception as e:
             messagebox.showerror("错误", f"导入CSV文件失败：\n{str(e)}")
+            return False
     
-    def _export_to_csv(self):
-        """导出标记信息到CSV文件"""
-        # 检查是否有原图文件夹
+    def _can_generate_csv(self) -> bool:
+        """检查当前内容是否满足 CSV 生成条件。"""
         if not self.folder_paths[0] or not self.image_lists[0]:
             messagebox.showwarning("警告", "请先选择原图文件夹！")
-            return
-        
-        # 检查是否有至少一个图1/2文件夹
+            return False
         if not self.folder_paths[1] and not self.folder_paths[2]:
             messagebox.showwarning("警告", "请至少选择一个图1/2文件夹！")
-            return
-        
-        # 选择保存位置（默认文件名为picpicker.csv，保存目录为下载目录）
+            return False
+        return True
+
+    def _choose_csv_save_path(self) -> str | None:
+        """显示 CSV 保存对话框并返回用户选择的路径。"""
         downloads_dir = os.path.expanduser("~/Downloads")
-        default_filename = os.path.join(downloads_dir, "picpicker.csv")
-        
         csv_path = filedialog.asksaveasfilename(
             title="保存CSV文件",
             defaultextension=".csv",
@@ -4169,30 +4277,84 @@ class PicPickerApp:
             initialdir=downloads_dir,
             initialfile="picpicker.csv"
         )
-        self.root.focus_force()  # 弹窗关闭后让主窗口获得焦点
-        
-        if not csv_path:
-            return  # 用户取消保存
-        
         try:
-            # 生成CSV数据
-            csv_data = self._generate_csv_data()
-            if csv_data:
-                # 写入CSV文件（使用GBK编码确保支持中文）
-                with open(csv_path, 'w', newline='', encoding='gbk') as csvfile:
-                    csvfile.write(csv_data)
-                
-                # 询问用户是否打开导出的文件
-                if messagebox.askyesno("成功", f"标记信息已导出到：\n{csv_path}\n\n是否打开该文件？"):
-                    self.root.focus_force()  # 弹窗关闭后让主窗口获得焦点
-                    self._open_file_with_default_app(csv_path)
-                else:
-                    self.root.focus_force()  # 弹窗关闭后让主窗口获得焦点
-            else:
-                messagebox.showerror("错误", "生成CSV数据失败")
-            
+            self.root.focus_force()
+        except Exception:
+            pass
+        return csv_path or None
+
+    def _write_csv_atomically(self, csv_path: str, csv_data: str) -> None:
+        """在目标目录完整写入临时文件后，原子替换 CSV。"""
+        target = Path(csv_path).absolute()
+        temp_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                newline="",
+                encoding="gbk",
+                dir=target.parent,
+                prefix=f".{target.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as temp_file:
+                temp_path = Path(temp_file.name)
+                temp_file.write(csv_data)
+                temp_file.flush()
+                os.fsync(temp_file.fileno())
+            os.replace(temp_path, target)
         except Exception as e:
-            messagebox.showerror("错误", f"导出CSV文件失败：\n{str(e)}")
+            cleanup_error = None
+            if temp_path is not None and temp_path.exists():
+                try:
+                    temp_path.unlink()
+                except Exception as cleanup_exception:
+                    cleanup_error = cleanup_exception
+            message = str(e)
+            if cleanup_error is not None:
+                message += f"\n临时文件无法删除：{temp_path}\n{cleanup_error}"
+            raise RuntimeError(message) from e
+
+    def _save_csv_to_path(self, csv_path: str) -> bool:
+        """将当前数据保存至指定 CSV；成功后更新文档状态。"""
+        if not self._can_generate_csv():
+            return False
+        csv_data = self._generate_csv_data()
+        if not csv_data:
+            messagebox.showerror("错误", "生成CSV数据失败")
+            return False
+        try:
+            self._write_csv_atomically(csv_path, csv_data)
+        except Exception as e:
+            messagebox.showerror("错误", f"保存CSV文件失败：\n{e}")
+            return False
+
+        self.current_csv_path = os.path.abspath(csv_path)
+        self._set_dirty(False)
+        try:
+            self.status_label.config(text=f"标记信息已保存到：{self.current_csv_path}")
+        except Exception:
+            pass
+        return True
+
+    def _export_to_csv(self) -> bool:
+        """保存标记信息；已有当前 CSV 时直接覆盖。"""
+        if self.current_csv_path and not self.is_dirty:
+            return True
+        if not self._can_generate_csv():
+            return False
+        csv_path = self.current_csv_path or self._choose_csv_save_path()
+        if not csv_path:
+            return False
+        return self._save_csv_to_path(csv_path)
+
+    def _save_csv_as(self) -> bool:
+        """将标记信息另存为新的当前 CSV。"""
+        if not self._can_generate_csv():
+            return False
+        csv_path = self._choose_csv_save_path()
+        if not csv_path:
+            return False
+        return self._save_csv_to_path(csv_path)
     
     def run(self):
         """运行应用"""
