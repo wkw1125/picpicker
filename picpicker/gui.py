@@ -184,8 +184,6 @@ class PicPickerApp:
         self.root.bind('<KeyPress-A>', self._on_key_a)
         self.root.bind('<KeyPress-s>', self._on_key_s)
         self.root.bind('<KeyPress-S>', self._on_key_s)
-        self.root.bind('<KeyPress-g>', self._on_key_g)
-        self.root.bind('<KeyPress-G>', self._on_key_g)
 
         # 绑定 Command 或 Control 组合键。
         system = platform.system()
@@ -195,6 +193,8 @@ class PicPickerApp:
             # 原图列表是独立 Toplevel，因此使用 bind_all。
             self.root.bind_all('<Command-l>', self._on_key_l)
             self.root.bind_all('<Command-L>', self._on_key_l)
+            self.root.bind('<Command-g>', self._on_key_g)
+            self.root.bind('<Command-G>', self._on_key_g)
             self.root.bind('<Command-b>', self._on_key_b)
             self.root.bind('<Command-B>', self._on_key_b)
             self.root.bind('<Command-s>', lambda e: self._export_to_csv())
@@ -215,6 +215,8 @@ class PicPickerApp:
             self.root.bind('<Control-O>', lambda e: self._import_from_csv())
             self.root.bind_all('<Control-l>', self._on_key_l)
             self.root.bind_all('<Control-L>', self._on_key_l)
+            self.root.bind('<Control-g>', self._on_key_g)
+            self.root.bind('<Control-G>', self._on_key_g)
             self.root.bind('<Control-b>', self._on_key_b)
             self.root.bind('<Control-B>', self._on_key_b)
             self.root.bind('<Control-s>', lambda e: self._export_to_csv())
@@ -285,6 +287,39 @@ class PicPickerApp:
         except Exception:
             # 最后兜底：不影响启动
             pass
+
+    def _center_dialog_on_root(self, dialog) -> None:
+        """将对话框居中放置在应用主窗口内，并确保位置不超出屏幕。"""
+        self.root.update_idletasks()
+        dialog.update_idletasks()
+
+        width = dialog.winfo_reqwidth()
+        height = dialog.winfo_reqheight()
+        root_x = self.root.winfo_rootx()
+        root_y = self.root.winfo_rooty()
+        root_width = self.root.winfo_width()
+        root_height = self.root.winfo_height()
+
+        x = root_x + (root_width - width) // 2
+        y = root_y + (root_height - height) // 2
+        max_x = max(0, dialog.winfo_screenwidth() - width)
+        max_y = max(0, dialog.winfo_screenheight() - height)
+        dialog.geometry(f"+{max(0, min(x, max_x))}+{max(0, min(y, max_y))}")
+
+    def _position_note_dialog(self, dialog, slot_index: int) -> None:
+        """将备注框水平对齐对应预览框中心，垂直放在预览框中下部。"""
+        self.root.update_idletasks()
+        dialog.update_idletasks()
+
+        preview = self.preview_labels[slot_index]
+        width = dialog.winfo_reqwidth()
+        height = dialog.winfo_reqheight()
+        x = preview.winfo_rootx() + (preview.winfo_width() - width) // 2
+        y = preview.winfo_rooty() + int(preview.winfo_height() * 0.7) - height // 2
+
+        max_x = max(0, dialog.winfo_screenwidth() - width)
+        max_y = max(0, dialog.winfo_screenheight() - height)
+        dialog.geometry(f"+{max(0, min(x, max_x))}+{max(0, min(y, max_y))}")
     
     def _create_widgets(self):
         """创建界面组件"""
@@ -367,7 +402,7 @@ class PicPickerApp:
         navigation_menu.add_command(
             label="跳转到…",
             command=self._jump_to_image,
-            accelerator="G"
+            accelerator="Cmd+G" if platform.system() == "Darwin" else "Ctrl+G"
         )
         search_accelerator = "Cmd+F" if platform.system() == "Darwin" else "Ctrl+F"
         navigation_menu.add_command(
@@ -2809,8 +2844,9 @@ class PicPickerApp:
         self._toggle_magnifier()
     
     def _on_key_g(self, event):
-        """处理G键 - 跳转到指定图片"""
+        """处理 Cmd/Ctrl+G - 跳转到指定图片。"""
         self._jump_to_image()
+        return "break"
 
     def _on_key_f(self, event):
         """处理 Cmd+F / Ctrl+F - 搜索原图文件名。"""
@@ -2876,6 +2912,9 @@ class PicPickerApp:
 
         dlg = tk.Toplevel(self.root)
         self._filename_search_dialog = dlg
+        # 与 tkinter.simpledialog 一致：布局和定位完成前保持隐藏，避免窗口先在
+        # 系统默认位置出现，再移动到应用中心时产生闪现。
+        dlg.withdraw()
         dlg.title("搜索原图")
         dlg.transient(self.root)
         dlg.resizable(False, False)
@@ -2889,7 +2928,6 @@ class PicPickerApp:
         entry.insert(0, self._filename_search_query)
         entry.select_range(0, tk.END)
         entry.icursor(tk.END)
-        entry.focus_set()
 
         btn_frame = tk.Frame(dlg)
         btn_frame.pack(pady=(0, 12))
@@ -2959,6 +2997,10 @@ class PicPickerApp:
         dlg.protocol("WM_DELETE_WINDOW", on_cancel)
         entry.bind("<Return>", lambda event: on_search())
         entry.bind("<Escape>", lambda event: on_cancel())
+        self._center_dialog_on_root(dlg)
+        dlg.deiconify()
+        dlg.wait_visibility()
+        entry.focus_set()
         dlg.grab_set()
         dlg.wait_window(dlg)
 
@@ -2993,6 +3035,7 @@ class PicPickerApp:
             result = simpledialog.askinteger(
                 "跳转到图片",
                 prompt,
+                parent=self.root,
                 minvalue=1,
                 maxvalue=max_images,
                 initialvalue=self.current_filtered_index + 1
@@ -3017,6 +3060,7 @@ class PicPickerApp:
         result = simpledialog.askinteger(
             "跳转到图片",
             prompt,
+            parent=self.root,
             minvalue=1,
             maxvalue=max_images,
             initialvalue=self.current_indices[0] + 1 if self.image_lists[0] else 1
@@ -3399,6 +3443,8 @@ class PicPickerApp:
         existing_note = self.notes[slot_index - 1].get(current_idx, "")
 
         dlg = tk.Toplevel(self.root)
+        # 完成布局和相对预览框定位前保持隐藏，避免窗口移动闪现。
+        dlg.withdraw()
         dlg.title(f"备注图{slot_index}")
         dlg.transient(self.root)
         dlg.resizable(False, False)
@@ -3411,7 +3457,6 @@ class PicPickerApp:
         entry.config(state="normal")
         entry.select_range(0, tk.END)  # 便于直接覆盖
         entry.icursor(tk.END)
-        entry.focus_set()
 
         btn_frame = tk.Frame(dlg)
         btn_frame.pack(pady=(0, 12))
@@ -3439,6 +3484,10 @@ class PicPickerApp:
         entry.bind("<Return>", lambda e: on_ok())
         entry.bind("<Escape>", lambda e: on_cancel())
 
+        self._position_note_dialog(dlg, slot_index)
+        dlg.deiconify()
+        dlg.wait_visibility()
+        entry.focus_set()
         dlg.grab_set()
         dlg.wait_window(dlg)
 
