@@ -772,7 +772,7 @@ class PicPickerApp:
             folder_name = self.FOLDER_NAMES[i]
             preview_label = tk.Label(
                 preview_container,
-                text=f"打开{folder_name}",
+                text=f"点击打开或拖入 {folder_name}",
                 bg=self.bg_colors[self.current_bg_color],  # 使用当前选择的背景颜色
                 relief=tk.SUNKEN,
                 borderwidth=2,
@@ -2613,9 +2613,13 @@ class PicPickerApp:
                 script = (
                     "Add-Type -AssemblyName System.Windows.Forms; "
                     "$files = New-Object System.Collections.Specialized.StringCollection; "
-                    "[void]$files.Add($args[0]); "
+                    "$path = [Environment]::GetEnvironmentVariable("
+                    "'PICPICKER_CLIPBOARD_FILE', 'Process'); "
+                    "[void]$files.Add($path); "
                     "[System.Windows.Forms.Clipboard]::SetFileDropList($files)"
                 )
+                clipboard_env = os.environ.copy()
+                clipboard_env["PICPICKER_CLIPBOARD_FILE"] = str(file_path)
                 result = subprocess.run(
                     [
                         "powershell.exe",
@@ -2623,10 +2627,10 @@ class PicPickerApp:
                         "-NoProfile",
                         "-Command",
                         script,
-                        str(file_path),
                     ],
                     capture_output=True,
                     text=True,
+                    env=clipboard_env,
                 )
                 if result.returncode != 0:
                     raise RuntimeError(result.stderr.strip() or "无法拷贝文件")

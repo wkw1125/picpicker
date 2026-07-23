@@ -70,3 +70,31 @@ def test_macos_copy_image_writes_file_object_to_clipboard(tmp_path, monkeypatch)
     assert "pasteboard.writeObjects(files)" in args[4]
     assert args[-1] == str(image_path.absolute())
     assert kwargs == {"capture_output": True, "text": True}
+
+
+def test_windows_copy_image_passes_path_without_powershell_parsing(tmp_path, monkeypatch):
+    image_path = tmp_path / "folder with spaces" / "photo_'quoted'.jpg"
+    app = make_app(image_path)
+    calls = []
+    monkeypatch.setattr(gui.platform, "system", lambda: "Windows")
+
+    class Result:
+        returncode = 0
+        stderr = ""
+
+    monkeypatch.setattr(
+        gui.subprocess,
+        "run",
+        lambda args, **kwargs: calls.append((args, kwargs)) or Result(),
+    )
+
+    app._copy_image_file(0)
+
+    args, kwargs = calls[0]
+    assert args[:4] == ["powershell.exe", "-STA", "-NoProfile", "-Command"]
+    assert str(image_path.absolute()) not in args
+    assert "$args[0]" not in args[4]
+    assert "PICPICKER_CLIPBOARD_FILE" in args[4]
+    assert kwargs["env"]["PICPICKER_CLIPBOARD_FILE"] == str(image_path.absolute())
+    assert kwargs["capture_output"] is True
+    assert kwargs["text"] is True
