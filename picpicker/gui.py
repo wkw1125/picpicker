@@ -2470,6 +2470,10 @@ class PicPickerApp:
             command=lambda idx=index: self._open_image_file(idx),
         )
         menu.add_command(
+            label="打开文件夹",
+            command=lambda idx=index: self._reveal_image_file(idx),
+        )
+        menu.add_command(
             label="打开方式",
             command=lambda idx=index: self._open_image_with(idx),
         )
@@ -2533,6 +2537,43 @@ class PicPickerApp:
                 subprocess.run(["xdg-open", file_path_str])
         except Exception as e:
             messagebox.showerror("错误", f"无法打开文件：\n{str(e)}")
+
+    def _reveal_image_file(self, index):
+        """用系统文件管理器打开图片所在文件夹，并定位选中该文件。"""
+        file_path = self._get_displayed_image_path(index)
+        if file_path is None:
+            return
+
+        file_path = file_path.absolute()
+        system = platform.system()
+        try:
+            if system == "Darwin":
+                subprocess.run(["open", "-R", str(file_path)], check=True)
+            elif system == "Windows":
+                subprocess.Popen(["explorer.exe", f"/select,{file_path}"])
+            else:
+                # freedesktop.org FileManager1 是 Linux 文件管理器通用的定位接口。
+                result = None
+                if shutil.which("dbus-send"):
+                    result = subprocess.run(
+                        [
+                            "dbus-send",
+                            "--session",
+                            "--dest=org.freedesktop.FileManager1",
+                            "--type=method_call",
+                            "/org/freedesktop/FileManager1",
+                            "org.freedesktop.FileManager1.ShowItems",
+                            f"array:string:{file_path.as_uri()}",
+                            "string:",
+                        ],
+                        capture_output=True,
+                        text=True,
+                    )
+                if result is None or result.returncode != 0:
+                    # 少数文件管理器不支持定位接口，至少打开文件所在目录。
+                    subprocess.run(["xdg-open", str(file_path.parent)], check=True)
+        except Exception as e:
+            messagebox.showerror("错误", f"无法打开文件所在文件夹：\n{str(e)}")
 
     def _open_image_with(self, index):
         """调用系统“打开方式”，让用户选择应用打开当前实际显示的文件。"""
@@ -3881,8 +3922,8 @@ class PicPickerApp:
                     folder_name = self.FOLDER_NAMES[i]
                     self.preview_labels[i].config(
                         image="",
-                        text=f"打开{folder_name}",
-                        cursor="hand2",
+                        text=f"点击打开或拖入 {folder_name}",
+                        # cursor="hand2",
                         anchor=tk.CENTER,
                     )
                     self.preview_labels[i].image = None

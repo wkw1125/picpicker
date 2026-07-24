@@ -63,6 +63,7 @@ def test_opened_preview_context_menu_offers_file_actions():
 
     assert [(kind, options["label"]) for kind, options in menu.entries] == [
         ("command", "打开"),
+        ("command", "打开文件夹"),
         ("command", "打开方式"),
         ("command", "拷贝"),
         ("command", "拷贝路径"),
